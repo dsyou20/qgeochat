@@ -1,0 +1,2 @@
+# qollama
+qgis + ollama
