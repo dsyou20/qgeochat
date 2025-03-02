@@ -538,6 +538,57 @@ class RAGHandler:
                 analysis.append(f"- 총 면적: {areas.sum():.2f}")
                 analysis.append(f"- 평균 면적: {areas.mean():.2f}")
         
+        # 4. 개별 피처 정보
+        analysis.append("\n## 개별 피처 정보")
+        
+        # 모든 컬럼 이름 (geometry 제외)
+        columns = [col for col in gdf.columns if col != 'geometry']
+        
+        for idx, row in gdf.iterrows():
+            analysis.append(f"\n### 피처 {idx + 1}")
+            
+            # 속성 정보
+            analysis.append("#### 속성")
+            for col in columns:
+                value = row[col]
+                # None, NaN 처리
+                if pd.isna(value):
+                    value = "없음"
+                # 숫자형 데이터 포맷팅
+                elif isinstance(value, (int, float)):
+                    value = f"{value:,}" if isinstance(value, int) else f"{value:,.2f}"
+                analysis.append(f"- {col}: {value}")
+            
+            # 도형 정보
+            analysis.append("#### 도형 정보")
+            geom = row['geometry']
+            if geom is not None:
+                analysis.append(f"- 도형 타입: {geom.geom_type}")
+                
+                # 도형 타입별 특성 정보
+                if geom.geom_type in ['LineString', 'MultiLineString']:
+                    analysis.append(f"- 길이: {geom.length:.2f}")
+                elif geom.geom_type in ['Polygon', 'MultiPolygon']:
+                    analysis.append(f"- 면적: {geom.area:.2f}")
+                    analysis.append(f"- 둘레: {geom.length:.2f}")
+                
+                # 경계 상자 정보
+                bounds = geom.bounds
+                analysis.append(f"- 경계 상자:")
+                analysis.append(f"  - 최소 X: {bounds[0]:.6f}")
+                analysis.append(f"  - 최소 Y: {bounds[1]:.6f}")
+                analysis.append(f"  - 최대 X: {bounds[2]:.6f}")
+                analysis.append(f"  - 최대 Y: {bounds[3]:.6f}")
+                
+                # 중심점 정보
+                centroid = geom.centroid
+                analysis.append(f"- 중심점: ({centroid.x:.6f}, {centroid.y:.6f})")
+            else:
+                analysis.append("- 도형 없음")
+            
+            # 구분선 추가
+            analysis.append("\n---")
+        
         return "\n".join(analysis)
 
     def process_layer(self, layer):
