@@ -37,7 +37,7 @@ deprecated=False
 # Since QGIS 3.8, a comma separated list of plugins to be installed
 # (or upgraded) can be specified.
 # Check the documentation for more information.
-# plugin_dependencies=
+plugin_dependencies=openai
 
 Category of the plugin: Raster, Vector, Database or Web
 # category=
@@ -45,3 +45,5 @@ Category of the plugin: Raster, Vector, Database or Web
 # If the plugin can run on QGIS Server.
 server=False
 
+[dependencies]
+python_packages=openai>=1.0.0

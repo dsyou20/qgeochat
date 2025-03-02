@@ -1,0 +1,6 @@
+openai>=1.0.0'
+pypdf
+langchain>=0.1.0
+langchain-openai
+faiss-cpu
+reportlab
