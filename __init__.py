@@ -58,7 +58,8 @@ def check_dependencies():
         'langchain': {'version': 'langchain>=0.1.0', 'display_name': 'LangChain'},
         'langchain-openai': {'version': 'langchain-openai', 'display_name': 'LangChain OpenAI'},
         'faiss-cpu': {'version': 'faiss-cpu', 'display_name': '벡터 데이터베이스'},
-        'reportlab': {'version': 'reportlab', 'display_name': 'PDF 생성'}
+        'reportlab': {'version': 'reportlab', 'display_name': 'PDF 생성'},
+        'geopandas': {'version': 'geopandas', 'display_name': 'GeoPandas'}
     }
     
     missing_packages = []
@@ -145,3 +146,14 @@ class DummyPlugin:
     def unload(self):
         """더미 unload 메서드"""
         pass
+
+# 필수 패키지 정의
+REQUIRED_PACKAGES = {
+    'langchain': {'version': 'langchain', 'display_name': 'LangChain'},
+    'langchain_openai': {'version': 'langchain-openai', 'display_name': 'LangChain OpenAI'},
+    'openai': {'version': 'openai', 'display_name': 'OpenAI'},
+    'faiss-cpu': {'version': 'faiss-cpu', 'display_name': 'FAISS-CPU'},
+    'geopandas': {'version': 'geopandas', 'display_name': 'GeoPandas'},
+    'pandas': {'version': 'pandas', 'display_name': 'Pandas'},
+    'numpy': {'version': 'numpy', 'display_name': 'NumPy'}
+}

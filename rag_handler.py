@@ -1,6 +1,5 @@
 from langchain.text_splitter import CharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
-from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain.vectorstores import FAISS
 from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
@@ -12,9 +11,14 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import os
 import tempfile
-from qgis.core import QgsCoordinateReferenceSystem, QgsGeometry, QgsWkbTypes, QgsDistanceArea
+from qgis.core import QgsCoordinateReferenceSystem, QgsGeometry, QgsWkbTypes, QgsDistanceArea, QgsVectorFileWriter, QgsCoordinateTransformContext, QgsProject
 from qgis.core import QgsProject
 import platform
+import json
+import geopandas as gpd
+import pandas as pd
+import numpy as np
+from qgis.core import QgsVectorLayer
 
 class RAGHandler:
     def __init__(self, api_key):
@@ -25,6 +29,9 @@ class RAGHandler:
             memory_key="chat_history",
             return_messages=True
         )
+        self.current_text_path = None
+        self.gdf = None
+        self.is_processed = False  # 레이어 처리 상태를 추적하는 플래그 추가
         # 한글 폰트 등록
         self.register_korean_font()
 
@@ -329,31 +336,218 @@ class RAGHandler:
         except Exception as e:
             raise Exception(f"PDF 생성 오류: {str(e)}")
 
+    def create_geojson_from_layer(self, layer):
+        """SHP 레이어를 GeoJSON으로 변환"""
+        temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp')
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+            
+        geojson_path = os.path.join(temp_dir, f"{layer.name()}_content.geojson")
+        
+        try:
+            # 기본 저장 옵션 설정
+            options = {
+                'COORDINATE_PRECISION': 6,  # 좌표 정밀도
+                'DRIVER_NAME': 'GeoJSON',   # 드라이버 지정
+                'ENCODING': 'UTF-8'         # 인코딩 설정
+            }
+            
+            # 파일로 내보내기
+            error = QgsVectorFileWriter.writeAsVectorFormat(
+                layer,
+                geojson_path,
+                'UTF-8',
+                driverName='GeoJSON',
+                layerOptions=['COORDINATE_PRECISION=6']
+            )
+            
+            if error[0] != QgsVectorFileWriter.NoError:
+                raise Exception(f"파일 저장 오류: {error[0]}")
+
+            return geojson_path
+            
+        except Exception as e:
+            raise Exception(f"GeoJSON 생성 오류: {str(e)}")
+
+    def format_geojson_for_context(self, geojson_path):
+        """GeoJSON 파일을 문맥 정보로 변환"""
+        try:
+            with open(geojson_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # GeoJSON 메타데이터 추출
+            context = ["# 레이어 공간 데이터 분석\n"]
+            
+            # 피처 정보 요약
+            feature_count = len(data['features'])
+            context.append(f"## 피처 개수\n총 {feature_count}개의 피처가 있습니다.\n")
+            
+            # 속성 정보 분석
+            if feature_count > 0:
+                sample_feature = data['features'][0]
+                if 'properties' in sample_feature:
+                    properties = sample_feature['properties'].keys()
+                    context.append(f"## 속성 필드\n{', '.join(properties)}\n")
+            
+            # 공간 정보 요약
+            geometry_types = set()
+            bounds = {
+                'minx': float('inf'), 'miny': float('inf'),
+                'maxx': float('-inf'), 'maxy': float('-inf')
+            }
+            
+            for feature in data['features']:
+                if 'geometry' in feature and feature['geometry']:
+                    geometry_types.add(feature['geometry']['type'])
+                    
+                    # 좌표 범위 계산
+                    coords = self._extract_coordinates(feature['geometry'])
+                    for x, y in coords:
+                        bounds['minx'] = min(bounds['minx'], x)
+                        bounds['miny'] = min(bounds['miny'], y)
+                        bounds['maxx'] = max(bounds['maxx'], x)
+                        bounds['maxy'] = max(bounds['maxy'], y)
+            
+            if geometry_types:
+                context.append(f"## 도형 타입\n{', '.join(geometry_types)}\n")
+                
+                if bounds['minx'] != float('inf'):
+                    context.append(
+                        f"## 공간 범위\n"
+                        f"X 범위: {bounds['minx']:.6f} ~ {bounds['maxx']:.6f}\n"
+                        f"Y 범위: {bounds['miny']:.6f} ~ {bounds['maxy']:.6f}\n"
+                    )
+            
+            # 피처 상세 정보
+            context.append("## 피처 상세 정보")
+            for i, feature in enumerate(data['features'][:10]):  # 처음 10개만
+                context.append(f"\n### 피처 {i+1}")
+                if 'properties' in feature:
+                    context.append(f"속성: {json.dumps(feature['properties'], indent=2, ensure_ascii=False)}")
+                if 'geometry' in feature and feature['geometry']:
+                    context.append(f"도형 타입: {feature['geometry']['type']}")
+            
+            if feature_count > 10:
+                context.append(f"\n... 외 {feature_count - 10}개의 피처가 더 있습니다.")
+            
+            return "\n".join(context)
+            
+        except Exception as e:
+            raise Exception(f"GeoJSON 분석 오류: {str(e)}")
+
+    def _extract_coordinates(self, geometry):
+        """도형에서 모든 좌표 추출"""
+        coords = []
+        if geometry['type'] == 'Point':
+            coords.append(tuple(geometry['coordinates'][:2]))
+        elif geometry['type'] in ['LineString', 'MultiPoint']:
+            coords.extend([tuple(c[:2]) for c in geometry['coordinates']])
+        elif geometry['type'] in ['Polygon', 'MultiLineString']:
+            for ring in geometry['coordinates']:
+                coords.extend([tuple(c[:2]) for c in ring])
+        elif geometry['type'] == 'MultiPolygon':
+            for polygon in geometry['coordinates']:
+                for ring in polygon:
+                    coords.extend([tuple(c[:2]) for c in ring])
+        return coords
+
+    def qgis_layer_to_geopandas(self, layer):
+        """QGIS 레이어를 GeoPandas DataFrame으로 변환"""
+        temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp')
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+        temp_gpkg = os.path.join(temp_dir, 'temp.gpkg')
+        
+        # 레이어를 GeoPackage로 저장
+        error = QgsVectorFileWriter.writeAsVectorFormat(
+            layer,
+            temp_gpkg,
+            'UTF-8',
+            driverName='GPKG'
+        )
+        
+        if error[0] != QgsVectorFileWriter.NoError:
+            raise Exception(f"GeoPackage 저장 오류: {error[0]}")
+        
+        # GeoPandas로 읽기
+        gdf = gpd.read_file(temp_gpkg)
+        
+        # 임시 파일 삭제
+        try:
+            os.remove(temp_gpkg)
+        except:
+            pass
+            
+        return gdf
+
+    def analyze_geodataframe(self, gdf):
+        """GeoPandas DataFrame 분석"""
+        analysis = ["# 공간 데이터 분석 보고서\n"]
+        
+        # 1. 기본 정보
+        analysis.append("## 기본 정보")
+        analysis.append(f"- 전체 레코드 수: {len(gdf)}")
+        analysis.append(f"- 좌표계: {gdf.crs}")
+        analysis.append(f"- 도형 타입: {gdf.geom_type.unique().tolist()}\n")
+        
+        # 2. 속성 정보
+        analysis.append("## 속성 정보")
+        for column in gdf.columns:
+            if column != 'geometry':
+                dtype = gdf[column].dtype
+                null_count = gdf[column].isnull().sum()
+                unique_count = gdf[column].nunique()
+                
+                analysis.append(f"### {column}")
+                analysis.append(f"- 데이터 타입: {dtype}")
+                analysis.append(f"- Null 값 개수: {null_count}")
+                analysis.append(f"- 고유값 개수: {unique_count}")
+                
+                if np.issubdtype(dtype, np.number):
+                    stats = gdf[column].describe()
+                    analysis.append(f"- 최소값: {stats['min']:.2f}")
+                    analysis.append(f"- 최대값: {stats['max']:.2f}")
+                    analysis.append(f"- 평균값: {stats['mean']:.2f}")
+                    analysis.append(f"- 중앙값: {stats['50%']:.2f}")
+                elif dtype == 'object':
+                    value_counts = gdf[column].value_counts().head(5)
+                    if not value_counts.empty:
+                        analysis.append("- 상위 5개 값:")
+                        for val, count in value_counts.items():
+                            analysis.append(f"  - {val}: {count}개")
+                analysis.append("")
+        
+        # 3. 공간 정보
+        analysis.append("## 공간 정보")
+        bounds = gdf.total_bounds
+        analysis.append(f"- X 범위: {bounds[0]:.6f} ~ {bounds[2]:.6f}")
+        analysis.append(f"- Y 범위: {bounds[1]:.6f} ~ {bounds[3]:.6f}")
+        
+        # 도형 통계
+        for geom_type in gdf.geom_type.unique():
+            type_gdf = gdf[gdf.geom_type == geom_type]
+            analysis.append(f"\n### {geom_type} 통계")
+            analysis.append(f"- 개수: {len(type_gdf)}개")
+            
+            if geom_type in ['LineString', 'MultiLineString']:
+                lengths = type_gdf.length
+                analysis.append(f"- 총 길이: {lengths.sum():.2f}")
+                analysis.append(f"- 평균 길이: {lengths.mean():.2f}")
+            elif geom_type in ['Polygon', 'MultiPolygon']:
+                areas = type_gdf.area
+                analysis.append(f"- 총 면적: {areas.sum():.2f}")
+                analysis.append(f"- 평균 면적: {areas.mean():.2f}")
+        
+        return "\n".join(analysis)
+
     def process_layer(self, layer):
         """레이어를 처리하고 벡터 저장소 생성"""
         try:
-            # PDF 생성
-            pdf_path = self.create_pdf_from_layer(layer)
+            # GeoPandas DataFrame으로 변환 및 분석
+            self.gdf = self.qgis_layer_to_geopandas(layer)
+            text = self.analyze_geodataframe(self.gdf)
             
-            # PDF 텍스트 추출
-            text = ""
-            try:
-                with open(pdf_path, 'rb') as file:
-                    content = file.read()
-                    encodings = ['utf-8', 'cp1252', 'iso-8859-1', 'euc-kr']
-                    for encoding in encodings:
-                        try:
-                            text = content.decode(encoding)
-                            break
-                        except UnicodeDecodeError:
-                            continue
-                    
-                    if not text:
-                        raise ValueError("텍스트 디코딩에 실패했습니다.")
-            except Exception as e:
-                raise Exception(f"PDF 읽기 오류: {str(e)}")
-
-            # 텍스트 분할
+            # 텍스트 분할 및 벡터 저장소 생성
             text_splitter = CharacterTextSplitter(
                 separator="\n",
                 chunk_size=1000,
@@ -364,7 +558,6 @@ class RAGHandler:
             if not texts:
                 raise Exception("텍스트 추출에 실패했습니다.")
 
-            # 벡터 저장소 생성 (FAISS 사용)
             embeddings = OpenAIEmbeddings(
                 api_key=self.api_key,
                 model="text-embedding-ada-002"
@@ -375,7 +568,6 @@ class RAGHandler:
                 embeddings
             )
             
-            # ConversationalRetrievalChain 설정
             llm = ChatOpenAI(
                 temperature=0,
                 api_key=self.api_key,
@@ -387,16 +579,16 @@ class RAGHandler:
                 retriever=self.vector_store.as_retriever(),
                 memory=self.memory
             )
-
-            # PDF 파일 경로 반환 (임시 파일 삭제하지 않음)
-            return pdf_path
             
+            self.is_processed = True  # 처리 완료 표시
+
         except Exception as e:
+            self.is_processed = False  # 처리 실패 시 상태 초기화
             raise Exception(f"레이어 처리 중 오류: {str(e)}")
 
     def get_response(self, question):
         """질문에 대한 응답 생성"""
-        if not self.chain:
+        if not self.is_processed or not self.chain:  # 상태 확인 수정
             return "레이어를 먼저 처리해주세요."
             
         try:
