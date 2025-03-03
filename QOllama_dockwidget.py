@@ -126,6 +126,14 @@ class QOllamaDockWidget(QDockWidget):
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
         self.chat_display.setMinimumHeight(200)
+        self.chat_display.setStyleSheet("""
+        QTextEdit {
+            background-color: white;
+            color: black;
+            font-family: Arial;
+            font-size: 10pt;
+        }
+    """)
         layout.addWidget(self.chat_display)
         
         # 입력 영역
@@ -325,24 +333,26 @@ class QOllamaDockWidget(QDockWidget):
     def send_message(self):
         """메시지 전송 처리"""
         try:
-            # 위젯 타입에 따른 텍스트 가져오기
-            if isinstance(self.input_text, QLineEdit):
-                question = self.input_text.text().strip()
-            else:  # QTextEdit인 경우
-                question = self.input_text.toPlainText().strip()
-            
+            question = self.input_text.text().strip()
             if not question:
                 return
-                
-            # 사용자 질문 표시
-            self.chat_display.append(f"[사용자] {question}")
+            
+            # 사용자 질문 표시 (파란색)
+            self.chat_display.append(f'<div style="color: blue;"><b>[사용자]</b> {question}</div>')
             self.input_text.clear()
             
             # 응답 생성
             answer = self.rag_handler.query(question)
             
-            # AI 응답 표시
-            self.chat_display.append(f"[AI] {answer}\n")
+            # AI 응답 표시 (초록색) - 줄바꿈 보존
+            formatted_answer = answer.replace('\n', '<br>')  # 줄바꿈을 HTML <br> 태그로 변환
+            self.chat_display.append(f'<div style="color: green;"><b>[AI]</b> {formatted_answer}</div>')
+            self.chat_display.append("")  # 빈 줄 추가
+            
+            # 스크롤을 가장 아래로 이동
+            self.chat_display.verticalScrollBar().setValue(
+                self.chat_display.verticalScrollBar().maximum()
+            )
             
         except Exception as e:
             QMessageBox.warning(self, "오류", f"메시지 처리 중 오류가 발생했습니다: {str(e)}")
@@ -383,14 +393,18 @@ class QOllamaDockWidget(QDockWidget):
 
     def setup_chat_ui(self):
         """채팅 UI 설정"""
-        # ... (기존 코드) ...
-
-        # 대화 기록 초기화 버튼 추가
-        self.clear_history_button = QPushButton("대화 기록 초기화")
-        self.clear_history_button.clicked.connect(self.clear_chat_history)
-        
-        # 버튼 레이아웃에 추가
-        self.button_layout.addWidget(self.clear_history_button)
+        # 채팅 표시 영역 설정
+        self.chat_display.setStyleSheet("""
+            QTextEdit {
+                background-color: white;
+                color: black;
+                font-family: Arial;
+                font-size: 10pt;
+                line-height: 1.5;
+            }
+        """)
+        self.chat_display.setAcceptRichText(True)  # HTML 형식 허용
+        self.chat_display.setReadOnly(True)  # 읽기 전용
 
     def clear_chat_history(self):
         """대화 기록 초기화"""

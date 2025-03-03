@@ -453,10 +453,15 @@ class RAGHandler:
 
             # 질문 처리
             chat_history = [(item["question"], item["answer"]) for item in self.chat_history]
+            
+            print("chat_history", chat_history)
+            
             result = self.chain({
                 "question": question,
                 "chat_history": chat_history  # 대화 기록 전달
             })
+            
+            
 
             # 응답 및 소스 문서 추출
             answer = result.get('answer', '')
@@ -465,18 +470,18 @@ class RAGHandler:
             # 응답 텍스트 구성
             response_text = answer
 
-            # 소스 문서 정보 추가
-            if source_docs:
-                response_text += "\n\n참고 문서:"
-                for i, doc in enumerate(source_docs, 1):
-                    content = doc.page_content[:200]
-                    response_text += f"\n{i}. {content}..."
+            # # 소스 문서 정보 추가
+            # if source_docs:
+            #     response_text += "\n\n참고 문서:"
+            #     for i, doc in enumerate(source_docs, 1):
+            #         content = doc.page_content[:200]
+            #         response_text += f"\n{i}. {content}..."
 
             # 대화 기록 저장
             self.chat_history.append({
                 "question": question,
                 "answer": answer,
-                "sources": [doc.page_content for doc in source_docs]
+                #"sources": [doc.page_content for doc in source_docs]
             })
 
             return response_text
