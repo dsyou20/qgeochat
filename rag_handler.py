@@ -19,21 +19,26 @@ import geopandas as gpd
 import pandas as pd
 import numpy as np
 from qgis.core import QgsVectorLayer
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+import logging
+from qgis.core import QgsSettings
+
+from langchain.chains.conversational_retrieval.prompts import QA_PROMPT
 
 class RAGHandler:
-    def __init__(self, api_key):
-        self.api_key = api_key
-        self.vector_store = None
-        self.chain = None
-        self.memory = ConversationBufferMemory(
-            memory_key="chat_history",
-            return_messages=True
-        )
-        self.current_text_path = None
+    def __init__(self):
+        """초기화"""
         self.gdf = None
-        self.is_processed = False  # 레이어 처리 상태를 추적하는 플래그 추가
-        # 한글 폰트 등록
-        self.register_korean_font()
+        self.vector_store = None
+        self.current_text_path = None
+        self.reference_text = None
+        self.chat_history = []
+        self.chain = None
+        
+        # QSettings에서 API 키 읽기
+        settings = QgsSettings()
+        self.api_key = settings.value("QOllama/api_key", "", type=str)
+        
 
     def register_korean_font(self):
         """한글 폰트 등록"""
@@ -96,7 +101,6 @@ class RAGHandler:
             if font_name in pdfmetrics.getRegisteredFontNames():
                 return font_name
         return 'Helvetica'  # 폴백 폰트
-
 
 
     def _extract_coordinates(self, geometry):
@@ -334,6 +338,57 @@ class RAGHandler:
             ])
                 
         
+        # 4. 개별 피처 정보
+        analysis.append("\n## 개별 피처 정보")
+        
+        # 모든 컬럼 이름 (geometry 제외)
+        columns = [col for col in gdf.columns if col != 'geometry']
+        
+        for idx, row in gdf.iterrows():
+            analysis.append(f"\n### 피처 {idx + 1}")
+            
+            # 속성 정보
+            analysis.append("#### 속성")
+            for col in columns:
+                value = row[col]
+                # None, NaN 처리
+                if pd.isna(value):
+                    value = "없음"
+                # 숫자형 데이터 포맷팅
+                elif isinstance(value, (int, float)):
+                    value = f"{value:,}" if isinstance(value, int) else f"{value:,.2f}"
+                analysis.append(f"- {col}: {value}")
+            
+            # 도형 정보
+            analysis.append("#### 도형 정보")
+            geom = row['geometry']
+            if geom is not None:
+                analysis.append(f"- 도형 타입: {geom.geom_type}")
+                
+                # 도형 타입별 특성 정보
+                if geom.geom_type in ['LineString', 'MultiLineString']:
+                    analysis.append(f"- 길이: {geom.length:.2f}")
+                elif geom.geom_type in ['Polygon', 'MultiPolygon']:
+                    analysis.append(f"- 면적: {geom.area:.2f}")
+                    analysis.append(f"- 둘레: {geom.length:.2f}")
+                
+                # 경계 상자 정보
+                bounds = geom.bounds
+                analysis.append(f"- 경계 상자:")
+                analysis.append(f"  - 최소 X: {bounds[0]:.6f}")
+                analysis.append(f"  - 최소 Y: {bounds[1]:.6f}")
+                analysis.append(f"  - 최대 X: {bounds[2]:.6f}")
+                analysis.append(f"  - 최대 Y: {bounds[3]:.6f}")
+                
+                # 중심점 정보
+                centroid = geom.centroid
+                analysis.append(f"- 중심점: ({centroid.x:.6f}, {centroid.y:.6f})")
+            else:
+                analysis.append("- 도형 없음")
+            
+            # 구분선 추가
+            analysis.append("\n---")
+        
         return "\n".join(analysis)
 
     def process_layer(self, layer):
@@ -373,22 +428,74 @@ class RAGHandler:
             self.chain = ConversationalRetrievalChain.from_llm(
                 llm=llm,
                 retriever=self.vector_store.as_retriever(),
-                memory=self.memory
+                memory=ConversationBufferMemory(
+                    memory_key="chat_history",
+                    output_key="answer",
+                    return_messages=True
+                ),
+                return_source_documents=True,
+                verbose=True
             )
             
+            self.reference_text = text
             self.is_processed = True  # 처리 완료 표시
 
         except Exception as e:
             self.is_processed = False  # 처리 실패 시 상태 초기화
             raise Exception(f"레이어 처리 중 오류: {str(e)}")
 
-    def get_response(self, question):
+
+    def query(self, question: str) -> str:
         """질문에 대한 응답 생성"""
-        if not self.is_processed or not self.chain:  # 상태 확인 수정
-            return "레이어를 먼저 처리해주세요."
-            
         try:
-            response = self.chain({"question": question})
-            return response['answer']
+            if not self.chain:
+                raise Exception("대화 체인이 초기화되지 않았습니다.")
+
+            # 질문 처리
+            chat_history = [(item["question"], item["answer"]) for item in self.chat_history]
+            result = self.chain({
+                "question": question,
+                "chat_history": chat_history  # 대화 기록 전달
+            })
+
+            # 응답 및 소스 문서 추출
+            answer = result.get('answer', '')
+            source_docs = result.get('source_documents', [])
+
+            # 응답 텍스트 구성
+            response_text = answer
+
+            # 소스 문서 정보 추가
+            if source_docs:
+                response_text += "\n\n참고 문서:"
+                for i, doc in enumerate(source_docs, 1):
+                    content = doc.page_content[:200]
+                    response_text += f"\n{i}. {content}..."
+
+            # 대화 기록 저장
+            self.chat_history.append({
+                "question": question,
+                "answer": answer,
+                "sources": [doc.page_content for doc in source_docs]
+            })
+
+            return response_text
+
         except Exception as e:
-            return f"응답 생성 중 오류가 발생했습니다: {str(e)}" 
+            error_msg = f"질문 처리 중 오류: {str(e)}"
+            logging.error(error_msg)
+            return error_msg
+
+    def get_chat_history(self) -> list:
+        """대화 기록 반환"""
+        return self.chat_history
+
+    def clear_chat_history(self):
+        """대화 기록 초기화"""
+        try:
+            self.chat_history = []
+            if self.chain and hasattr(self.chain, 'memory'):
+                self.chain.memory.clear()
+            logging.info("대화 기록이 초기화되었습니다.")
+        except Exception as e:
+            logging.error(f"대화 기록 초기화 중 오류: {str(e)}") 

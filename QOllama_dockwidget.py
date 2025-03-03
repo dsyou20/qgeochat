@@ -33,7 +33,7 @@ from qgis.PyQt.QtGui import QDesktopServices, QTextCharFormat, QColor, QTextCurs
 from qgis.PyQt.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QLineEdit, QTextEdit, QLabel,
                                 QTabWidget, QListWidget, QComboBox, QCheckBox,
-                                QProgressBar)
+                                QProgressBar, QMessageBox)
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'QOllama_dockwidget_base.ui'))
@@ -213,7 +213,7 @@ class QOllamaDockWidget(QDockWidget):
         if api_key:
             try:
                 self.api_key = api_key
-                self.rag_handler = RAGHandler(api_key)
+                self.rag_handler = RAGHandler()
                 self.process_button.setEnabled(True)
                 self.api_status_label.setText("API 키가 설정되었습니다")
                 self.api_status_label.setStyleSheet("color: green")
@@ -323,24 +323,29 @@ class QOllamaDockWidget(QDockWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(self.analysis_file_path))
 
     def send_message(self):
-        """메시지 전송"""
-        if not self.api_key or not self.rag_handler:
-            self.append_message("[시스템] API 키를 먼저 설정해주세요.")
-            self.tab_widget.setCurrentIndex(1)  # 설정 탭으로 이동
-            return
-
-        question = self.input_text.text().strip()
-        if not question:
-            return
-
-        self.append_message(f"[사용자] {question}")
-        self.input_text.clear()
-
+        """메시지 전송 처리"""
         try:
-            response = self.rag_handler.get_response(question)
-            self.append_message(f"[AI] {response}")
+            # 위젯 타입에 따른 텍스트 가져오기
+            if isinstance(self.input_text, QLineEdit):
+                question = self.input_text.text().strip()
+            else:  # QTextEdit인 경우
+                question = self.input_text.toPlainText().strip()
+            
+            if not question:
+                return
+                
+            # 사용자 질문 표시
+            self.chat_display.append(f"[사용자] {question}")
+            self.input_text.clear()
+            
+            # 응답 생성
+            answer = self.rag_handler.query(question)
+            
+            # AI 응답 표시
+            self.chat_display.append(f"[AI] {answer}\n")
+            
         except Exception as e:
-            self.append_message(f"[시스템] 오류가 발생했습니다: {str(e)}")
+            QMessageBox.warning(self, "오류", f"메시지 처리 중 오류가 발생했습니다: {str(e)}")
 
     def append_message(self, message):
         """채팅 메시지 추가 (색상 적용)"""
@@ -375,3 +380,23 @@ class QOllamaDockWidget(QDockWidget):
         
         self.closingPlugin.emit()
         event.accept()
+
+    def setup_chat_ui(self):
+        """채팅 UI 설정"""
+        # ... (기존 코드) ...
+
+        # 대화 기록 초기화 버튼 추가
+        self.clear_history_button = QPushButton("대화 기록 초기화")
+        self.clear_history_button.clicked.connect(self.clear_chat_history)
+        
+        # 버튼 레이아웃에 추가
+        self.button_layout.addWidget(self.clear_history_button)
+
+    def clear_chat_history(self):
+        """대화 기록 초기화"""
+        try:
+            self.rag_handler.clear_chat_history()
+            self.chat_display.clear()
+            self.chat_display.append("대화 기록이 초기화되었습니다.")
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"대화 기록 초기화 중 오류가 발생했습니다: {str(e)}")
