@@ -23,6 +23,7 @@
 """
 
 import os
+import re
 
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal, QSettings, Qt, QUrl
@@ -77,6 +78,7 @@ class QOllamaDockWidget(QDockWidget):
         # 탭 생성
         self.setup_main_tab()
         self.setup_settings_tab()
+        self.setup_info_tab()
         self.setup_connections()
         
         # 저장된 API 키 로드
@@ -177,6 +179,14 @@ class QOllamaDockWidget(QDockWidget):
         layout.addStretch()
         
         self.tab_widget.addTab(settings_tab, "설정")
+
+    def setup_info_tab(self):
+        """정보 탭 설정"""
+        self.info_tab = QWidget()
+        self.tab_widget.addTab(self.info_tab, "정보")
+        
+        # 각 탭의 UI 설정
+        self.setup_info_ui()
 
     def setup_connections(self):
         """시그널-슬롯 연결"""
@@ -414,3 +424,69 @@ class QOllamaDockWidget(QDockWidget):
             self.chat_display.append("대화 기록이 초기화되었습니다.")
         except Exception as e:
             QMessageBox.warning(self, "오류", f"대화 기록 초기화 중 오류가 발생했습니다: {str(e)}")
+
+    def setup_info_ui(self):
+        """정보 탭 UI 설정"""
+        # 정보 탭 레이아웃
+        info_layout = QVBoxLayout()
+        self.info_tab.setLayout(info_layout)
+        
+        # 업데이트 내역 표시를 위한 텍스트 에디터
+        self.changelog_display = QTextEdit()
+        self.changelog_display.setReadOnly(True)
+        info_layout.addWidget(self.changelog_display)
+        
+        # 업데이트 내역 로드
+        self.load_changelog()
+
+    def load_changelog(self):
+        """업데이트 내역 로드"""
+        try:
+            # 플러그인 디렉토리 내의 CHANGELOG.md 파일 경로
+            plugin_dir = os.path.dirname(os.path.abspath(__file__))
+            changelog_path = os.path.join(plugin_dir, 'CHANGELOG.md')
+            
+            if os.path.exists(changelog_path):
+                with open(changelog_path, 'r', encoding='utf-8') as f:
+                    changelog_text = f.read()
+                self.changelog_display.setPlainText(changelog_text)
+            else:
+                self.changelog_display.setPlainText("업데이트 내역 파일을 찾을 수 없습니다.")
+                
+        except Exception as e:
+            self.changelog_display.setPlainText(f"업데이트 내역을 불러오는 중 오류가 발생했습니다: {str(e)}")
+
+    def style_markdown(self, text):
+        """마크다운 텍스트를 HTML로 변환"""
+        html = text
+        
+        # 제목 변환
+        html = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+        html = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+        html = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+        
+        # 목록 변환
+        html = re.sub(r'^\- (.*?)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+        html = re.sub(r'(<li>.*?</li>\n)+', r'<ul>\g<0></ul>', html, flags=re.DOTALL)
+        
+        # 강조 변환
+        html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html)
+        html = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html)
+        
+        # 코드 블록 변환
+        html = re.sub(r'```(.*?)```', r'<pre><code>\1</code></pre>', html, flags=re.DOTALL)
+        
+        # 스타일 추가
+        html = f"""
+        <style>
+            h1 {{ color: #2c3e50; font-size: 18pt; margin-top: 20px; }}
+            h2 {{ color: #34495e; font-size: 14pt; margin-top: 15px; }}
+            h3 {{ color: #7f8c8d; font-size: 12pt; margin-top: 10px; }}
+            ul {{ margin-left: 20px; }}
+            li {{ margin: 5px 0; }}
+            pre {{ background-color: #f8f9fa; padding: 10px; border-radius: 4px; }}
+        </style>
+        {html}
+        """
+        
+        return html
