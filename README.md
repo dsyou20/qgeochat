@@ -1,2 +1,2 @@
 # qollama
-qgis + ollama
+qgis + ollama( or ChatGPT) 
