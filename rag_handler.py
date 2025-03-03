@@ -97,343 +97,7 @@ class RAGHandler:
                 return font_name
         return 'Helvetica'  # 폴백 폰트
 
-    def create_pdf_from_layer(self, layer):
-        """SHP 레이어의 내용을 PDF로 변환"""
-        temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp')
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
-            
-        pdf_path = os.path.join(temp_dir, f"{layer.name()}_content.pdf")
-        
-        try:
-            doc = SimpleDocTemplate(pdf_path, pagesize=letter)
-            elements = []
-            
-            # 기본 스타일 가져오기
-            styles = getSampleStyleSheet()
-            korean_font = self.get_korean_font_name()
-            
-            # 한글 스타일 추가
-            styles.add(ParagraphStyle(
-                name='KoreanNormal',
-                parent=styles['Normal'],
-                fontName=korean_font,
-                fontSize=10,
-                leading=12
-            ))
-            
-            styles.add(ParagraphStyle(
-                name='KoreanHeading1',
-                parent=styles['Heading1'],
-                fontName=korean_font,
-                fontSize=14,
-                leading=16
-            ))
 
-            # 1. 레이어 기본 정보
-            elements.append(Paragraph(f"레이어 분석 보고서: {layer.name()}", styles['KoreanHeading1']))
-            
-            # 2. 공간 정보 섹션
-            elements.append(Paragraph("공간 정보", styles['KoreanHeading1']))
-            
-            # 좌표계 정보
-            crs = layer.crs()
-            spatial_info = [
-                f"좌표계: {crs.description()}",
-                f"EPSG 코드: {crs.authid()}",
-                f"좌표계 유형: {'지리좌표계' if crs.isGeographic() else '투영좌표계'}"
-            ]
-            for info in spatial_info:
-                elements.append(Paragraph(info, styles['KoreanNormal']))
-            
-            # 레이어 범위
-            extent = layer.extent()
-            extent_info = [
-                f"X 최소: {extent.xMinimum():.6f}",
-                f"X 최대: {extent.xMaximum():.6f}",
-                f"Y 최소: {extent.yMinimum():.6f}",
-                f"Y 최대: {extent.yMaximum():.6f}"
-            ]
-            elements.append(Paragraph("레이어 범위:", styles['KoreanHeading1']))
-            for info in extent_info:
-                elements.append(Paragraph(info, styles['KoreanNormal']))
-            
-            # 도형 타입 정보
-            geom_type = QgsWkbTypes.displayString(layer.wkbType())
-            elements.append(Paragraph(f"도형 타입: {geom_type}", styles['KoreanNormal']))
-            
-            # 3. 속성 정보 섹션
-            elements.append(Paragraph("속성 정보", styles['KoreanHeading1']))
-            fields = layer.fields()
-            field_info = [
-                [
-                    "필드명",
-                    "타입",
-                    "길이",
-                    "정밀도"
-                ]
-            ]
-            for field in fields:
-                field_info.append([
-                    field.name(),
-                    field.typeName(),
-                    str(field.length()),
-                    str(field.precision())
-                ])
-            
-            # 속성 테이블 생성
-            table = Table(field_info)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            elements.append(table)
-            
-            # 4. 피처 통계 정보
-            elements.append(Paragraph("피처 통계", styles['KoreanHeading1']))
-            feature_count = layer.featureCount()
-            elements.append(Paragraph(f"총 피처 수: {feature_count}", styles['KoreanNormal']))
-            
-            # 도형 통계 계산
-            if layer.geometryType() != QgsWkbTypes.NullGeometry:
-                total_length = 0
-                total_area = 0
-                for feature in layer.getFeatures():
-                    geom = feature.geometry()
-                    if geom:
-                        if QgsWkbTypes.hasM(layer.wkbType()):
-                            geom.dropM()
-                        if QgsWkbTypes.hasZ(layer.wkbType()):
-                            geom.dropZ()
-                            
-                        if geom.type() == QgsWkbTypes.LineGeometry:
-                            total_length += geom.length()
-                        elif geom.type() == QgsWkbTypes.PolygonGeometry:
-                            total_area += geom.area()
-                
-                if total_length > 0:
-                    elements.append(Paragraph(f"총 길이: {total_length:.2f}", styles['KoreanNormal']))
-                if total_area > 0:
-                    elements.append(Paragraph(f"총 면적: {total_area:.2f}", styles['KoreanNormal']))
-            
-            # 도형 정보를 위한 거리/면적 계산기 설정
-            distance_area = QgsDistanceArea()
-            distance_area.setSourceCrs(layer.crs(), QgsProject.instance().transformContext())
-            distance_area.setEllipsoid(QgsProject.instance().ellipsoid())
-
-            # 5. 피처 데이터와 도형 정보
-            elements.append(Paragraph("피처 데이터 및 도형 정보", styles['KoreanHeading1']))
-            
-            # 필드명에 도형 정보 컬럼 추가
-            headers = [field.name() for field in fields]
-            headers.extend(['Geometry Type', 'WKT', 'Measurements'])
-            data = [headers]
-            
-            # 피처 데이터 추가 (최대 100개까지만)
-            feature_limit = 100
-            for i, feature in enumerate(layer.getFeatures()):
-                if i >= feature_limit:
-                    elements.append(Paragraph(
-                        f"* 참고: 전체 {feature_count}개 중 {feature_limit}개만 표시됨", 
-                        styles['Italic']
-                    ))
-                    break
-                    
-                row = []
-                # 속성 데이터 추가
-                for field in fields:
-                    value = feature[field.name()]
-                    if isinstance(value, (str, bytes)):
-                        try:
-                            if isinstance(value, bytes):
-                                value = value.decode('utf-8', errors='replace')
-                            else:
-                                value = str(value)
-                        except:
-                            value = str(value).encode('ascii', 'replace').decode('ascii')
-                    else:
-                        value = str(value)
-                    row.append(value)
-                
-                # 도형 정보 추가
-                geom = feature.geometry()
-                if geom and not geom.isNull():
-                    # 도형 타입
-                    geom_type = QgsWkbTypes.displayString(geom.wkbType())
-                    row.append(geom_type)
-                    
-                    # WKT (긴 문자열은 축약)
-                    wkt = geom.asWkt()
-                    if len(wkt) > 100:
-                        wkt = wkt[:100] + "..."
-                    row.append(wkt)
-                    
-                    # 도형 측정값
-                    measurements = []
-                    if geom.type() == QgsWkbTypes.PointGeometry:
-                        point = geom.asPoint()
-                        measurements.append(f"X: {point.x():.2f}")
-                        measurements.append(f"Y: {point.y():.2f}")
-                        if QgsWkbTypes.hasZ(geom.wkbType()):
-                            measurements.append(f"Z: {point.z():.2f}")
-                    
-                    elif geom.type() == QgsWkbTypes.LineGeometry:
-                        length = distance_area.measureLength(geom)
-                        if length < 1000:
-                            measurements.append(f"길이: {length:.2f} m")
-                        else:
-                            measurements.append(f"길이: {length/1000:.2f} km")
-                    
-                    elif geom.type() == QgsWkbTypes.PolygonGeometry:
-                        area = distance_area.measureArea(geom)
-                        perimeter = distance_area.measurePerimeter(geom)
-                        if area < 1000000:
-                            measurements.append(f"면적: {area:.2f} m²")
-                        else:
-                            measurements.append(f"면적: {area/1000000:.2f} km²")
-                        if perimeter < 1000:
-                            measurements.append(f"둘레: {perimeter:.2f} m")
-                        else:
-                            measurements.append(f"둘레: {perimeter/1000:.2f} km")
-                    
-                    row.append("\n".join(measurements))
-                else:
-                    row.extend(["No geometry", "", ""])
-                
-                data.append(row)
-            
-            # 도형 정보를 포함한 테이블 생성
-            if len(data) > 1:
-                # 테이블 스타일 설정
-                table_style = [
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('ALIGN', (0, 0), (-1, -1), 'LEFT'),  # 왼쪽 정렬로 변경
-                    ('FONTNAME', (0, 0), (-1, -1), korean_font),
-                    ('FONTSIZE', (0, 0), (-1, 0), 10),  # 글자 크기 조정
-                    ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                    ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                    ('WORDWRAP', (0, 0), (-1, -1), True)  # 자동 줄바꿈 활성화
-                ]
-                
-                # 열 너비 설정
-                col_widths = [80] * len(fields)  # 기본 필드들
-                col_widths.extend([100, 150, 120])  # 도형 타입, WKT, 측정값 열
-                
-                feature_table = Table(data, colWidths=col_widths, repeatRows=1)
-                feature_table.setStyle(TableStyle(table_style))
-                elements.append(feature_table)
-            
-            # PDF 생성
-            doc.build(elements)
-            return pdf_path
-            
-        except Exception as e:
-            raise Exception(f"PDF 생성 오류: {str(e)}")
-
-    def create_geojson_from_layer(self, layer):
-        """SHP 레이어를 GeoJSON으로 변환"""
-        temp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'temp')
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
-            
-        geojson_path = os.path.join(temp_dir, f"{layer.name()}_content.geojson")
-        
-        try:
-            # 기본 저장 옵션 설정
-            options = {
-                'COORDINATE_PRECISION': 6,  # 좌표 정밀도
-                'DRIVER_NAME': 'GeoJSON',   # 드라이버 지정
-                'ENCODING': 'UTF-8'         # 인코딩 설정
-            }
-            
-            # 파일로 내보내기
-            error = QgsVectorFileWriter.writeAsVectorFormat(
-                layer,
-                geojson_path,
-                'UTF-8',
-                driverName='GeoJSON',
-                layerOptions=['COORDINATE_PRECISION=6']
-            )
-            
-            if error[0] != QgsVectorFileWriter.NoError:
-                raise Exception(f"파일 저장 오류: {error[0]}")
-
-            return geojson_path
-            
-        except Exception as e:
-            raise Exception(f"GeoJSON 생성 오류: {str(e)}")
-
-    def format_geojson_for_context(self, geojson_path):
-        """GeoJSON 파일을 문맥 정보로 변환"""
-        try:
-            with open(geojson_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # GeoJSON 메타데이터 추출
-            context = ["# 레이어 공간 데이터 분석\n"]
-            
-            # 피처 정보 요약
-            feature_count = len(data['features'])
-            context.append(f"## 피처 개수\n총 {feature_count}개의 피처가 있습니다.\n")
-            
-            # 속성 정보 분석
-            if feature_count > 0:
-                sample_feature = data['features'][0]
-                if 'properties' in sample_feature:
-                    properties = sample_feature['properties'].keys()
-                    context.append(f"## 속성 필드\n{', '.join(properties)}\n")
-            
-            # 공간 정보 요약
-            geometry_types = set()
-            bounds = {
-                'minx': float('inf'), 'miny': float('inf'),
-                'maxx': float('-inf'), 'maxy': float('-inf')
-            }
-            
-            for feature in data['features']:
-                if 'geometry' in feature and feature['geometry']:
-                    geometry_types.add(feature['geometry']['type'])
-                    
-                    # 좌표 범위 계산
-                    coords = self._extract_coordinates(feature['geometry'])
-                    for x, y in coords:
-                        bounds['minx'] = min(bounds['minx'], x)
-                        bounds['miny'] = min(bounds['miny'], y)
-                        bounds['maxx'] = max(bounds['maxx'], x)
-                        bounds['maxy'] = max(bounds['maxy'], y)
-            
-            if geometry_types:
-                context.append(f"## 도형 타입\n{', '.join(geometry_types)}\n")
-                
-                if bounds['minx'] != float('inf'):
-                    context.append(
-                        f"## 공간 범위\n"
-                        f"X 범위: {bounds['minx']:.6f} ~ {bounds['maxx']:.6f}\n"
-                        f"Y 범위: {bounds['miny']:.6f} ~ {bounds['maxy']:.6f}\n"
-                    )
-            
-            # 피처 상세 정보
-            context.append("## 피처 상세 정보")
-            for i, feature in enumerate(data['features'][:10]):  # 처음 10개만
-                context.append(f"\n### 피처 {i+1}")
-                if 'properties' in feature:
-                    context.append(f"속성: {json.dumps(feature['properties'], indent=2, ensure_ascii=False)}")
-                if 'geometry' in feature and feature['geometry']:
-                    context.append(f"도형 타입: {feature['geometry']['type']}")
-            
-            if feature_count > 10:
-                context.append(f"\n... 외 {feature_count - 10}개의 피처가 더 있습니다.")
-            
-            return "\n".join(context)
-            
-        except Exception as e:
-            raise Exception(f"GeoJSON 분석 오류: {str(e)}")
 
     def _extract_coordinates(self, geometry):
         """도형에서 모든 좌표 추출"""
@@ -537,6 +201,138 @@ class RAGHandler:
                 areas = type_gdf.area
                 analysis.append(f"- 총 면적: {areas.sum():.2f}")
                 analysis.append(f"- 평균 면적: {areas.mean():.2f}")
+                
+        # 4. 속성 정보 추가
+        analysis.append("## 속성 정보")
+        for column in gdf.columns:
+            if column != 'geometry':
+                analysis.append(f"### {column}")
+                analysis.append(f"- 데이터 타입: {gdf[column].dtype}")
+                
+        # 5. 개별 피처 정보
+        analysis.extend([
+            "## 개별 피처 정보",
+            "### 피처별 상세 데이터"
+        ])
+        
+        for idx, row in self.gdf.iterrows():
+            geom = row['geometry']
+            
+            # 피처 헤더 추가
+            analysis.extend([
+                f"\n#### 피처 {idx + 1}"
+            ])
+            
+            # 모든 속성 정보 추가
+            analysis.append("- 속성 정보:")
+            for column in self.gdf.columns:
+                if column != 'geometry':
+                    value = row[column]
+                    # None 값 처리
+                    if pd.isna(value):
+                        formatted_value = "NULL"
+                    # 숫자형 데이터 처리
+                    elif np.issubdtype(type(value), np.number):
+                        formatted_value = f"{value:.6f}" if isinstance(value, float) else str(value)
+                    # 나머지 데이터 타입
+                    else:
+                        formatted_value = str(value)
+                    analysis.append(f"  - {column}: {formatted_value}")
+            
+            # 도형 정보 추가
+            analysis.extend([
+                "- 도형 정보:",
+                f"  - 도형 타입: {geom.geom_type}",
+                f"  - 면적: {geom.area:.2f}",
+                f"  - 둘레: {geom.length:.2f}",
+                "  - 중심점 좌표:",
+                f"    - X: {geom.centroid.x:.6f}",
+                f"    - Y: {geom.centroid.y:.6f}",
+                "  - 경계 상자:",
+                f"    - 최소 X: {geom.bounds[0]:.6f}",
+                f"    - 최소 Y: {geom.bounds[1]:.6f}",
+                f"    - 최대 X: {geom.bounds[2]:.6f}",
+                f"    - 최대 Y: {geom.bounds[3]:.6f}"
+            ])
+            
+            # 도형 타입별 추가 정보
+            if geom.geom_type == 'MultiPolygon':
+                polygon_count = len(list(geom.geoms))
+                vertex_count = sum(len(list(polygon.exterior.coords)) for polygon in geom.geoms)
+                hole_count = sum(len(polygon.interiors) for polygon in geom.geoms)
+                analysis.extend([
+                    "  - MultiPolygon 상세:",
+                    f"    - 구성 폴리곤 수: {polygon_count}",
+                    f"    - 전체 꼭지점 수: {vertex_count}",
+                    f"    - 구멍 개수: {hole_count}"
+                ])
+                
+                # 각 구성 폴리곤의 상세 정보
+                analysis.append("    - 구성 폴리곤 정보:")
+                for i, polygon in enumerate(geom.geoms):
+                    analysis.extend([
+                        f"      - 폴리곤 {i+1}:",
+                        f"        - 면적: {polygon.area:.2f}",
+                        f"        - 둘레: {polygon.length:.2f}",
+                        f"        - 꼭지점 수: {len(list(polygon.exterior.coords))}",
+                        f"        - 구멍 수: {len(polygon.interiors)}"
+                    ])
+            
+            elif geom.geom_type == 'Polygon':
+                analysis.extend([
+                    "  - Polygon 상세:",
+                    f"    - 꼭지점 수: {len(list(geom.exterior.coords))}",
+                    f"    - 구멍 수: {len(geom.interiors)}"
+                ])
+                
+                if geom.interiors:
+                    analysis.append("    - 구멍 정보:")
+                    for i, interior in enumerate(geom.interiors):
+                        analysis.extend([
+                            f"      - 구멍 {i+1}:",
+                            f"        - 꼭지점 수: {len(list(interior.coords))}"
+                        ])
+            
+            elif geom.geom_type in ['LineString', 'MultiLineString']:
+                if geom.geom_type == 'LineString':
+                    analysis.extend([
+                        "  - LineString 상세:",
+                        f"    - 꼭지점 수: {len(list(geom.coords))}"
+                    ])
+                else:
+                    total_vertices = sum(len(list(line.coords)) for line in geom.geoms)
+                    analysis.extend([
+                        "  - MultiLineString 상세:",
+                        f"    - 라인 수: {len(list(geom.geoms))}",
+                        f"    - 전체 꼭지점 수: {total_vertices}"
+                    ])
+            
+            elif geom.geom_type in ['Point', 'MultiPoint']:
+                if geom.geom_type == 'Point':
+                    analysis.extend([
+                        "  - Point 상세:",
+                        f"    - X: {geom.x:.6f}",
+                        f"    - Y: {geom.y:.6f}"
+                    ])
+                else:
+                    analysis.extend([
+                        "  - MultiPoint 상세:",
+                        f"    - 포인트 수: {len(list(geom.geoms))}",
+                        "    - 포인트 좌표:"
+                    ])
+                    for i, point in enumerate(geom.geoms):
+                        analysis.extend([
+                            f"      - 포인트 {i+1}:",
+                            f"        - X: {point.x:.6f}",
+                            f"        - Y: {point.y:.6f}"
+                        ])
+            
+            # WKT 형식 도형 정보 추가
+            analysis.extend([
+                "  - WKT 형식:",
+                f"    {geom.wkt}"
+            ])
+                
         
         return "\n".join(analysis)
 
