@@ -119,10 +119,7 @@ class QOllama:
             callback=self.run,
             parent=self.iface.mainWindow())
 
-    def onClosePlugin(self):
-        """플러그인 종료 시 정리 작업"""
-        self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
-        self.pluginIsActive = False
+
 
     def unload(self):
         """플러그인 제거 시 정리 작업"""
@@ -134,13 +131,29 @@ class QOllama:
         del self.toolbar
 
     def run(self):
-        """플러그인 실행"""
+        """QGIS 플러그인 실행"""
         if not self.pluginIsActive:
             self.pluginIsActive = True
 
             if self.dockwidget == None:
-                self.dockwidget = QOllamaDockWidget(self.iface)
+                # 도크위젯 생성
+                self.dockwidget = QOllamaDockWidget(self.iface.mainWindow())
+                # 도크위젯을 메인 윈도우의 오른쪽에 추가
+                self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
+                # 도크위젯 너비를 부모 윈도우의 1/3로 설정
+                self.iface.mainWindow().resizeDocks(
+                    [self.dockwidget], 
+                    [self.iface.mainWindow().width() // 3], 
+                    Qt.Horizontal
+                )
+                # 도크위젯 종료 시 처리
                 self.dockwidget.closingPlugin.connect(self.onClosePlugin)
+        else:
+            # 이미 활성화된 경우 도크위젯 표시
+            if self.dockwidget:
+                self.dockwidget.show()
 
-            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
-            self.dockwidget.show()
+    def onClosePlugin(self):
+        """플러그인 종료 시 정리 작업"""
+        self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
+        self.pluginIsActive = False

@@ -157,3 +157,25 @@ REQUIRED_PACKAGES = {
     'pandas': {'version': 'pandas', 'display_name': 'Pandas'},
     'numpy': {'version': 'numpy', 'display_name': 'NumPy'}
 }
+
+# 의존성 정의
+dependencies = {
+    'PyPDF2': {'module': 'PyPDF2', 'version': 'PyPDF2'}
+}
+
+# 의존성 체크 함수
+def check_dependencies():
+    try:
+        import pkg_resources
+        
+        for package_name, details in dependencies.items():
+            try:
+                pkg_resources.require(details['version'])
+            except pkg_resources.DistributionNotFound:
+                return False, f"{package_name} 모듈이 설치되어 있지 않습니다."
+            except pkg_resources.VersionConflict:
+                return False, f"{package_name} 모듈의 버전이 맞지 않습니다."
+                
+        return True, "모든 의존성이 설치되어 있습니다."
+    except Exception as e:
+        return False, str(e)

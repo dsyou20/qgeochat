@@ -24,17 +24,31 @@
 
 import os
 import re
+from datetime import datetime
+import sys
+import subprocess
 
+import geopandas as gpd
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from qgis.PyQt.QtCore import Qt, QEvent  # QEvent 추가
 from qgis.PyQt import QtGui, QtWidgets, uic
-from qgis.PyQt.QtCore import pyqtSignal, QSettings, Qt, QUrl
-from qgis.core import QgsProject, Qgis
+from qgis.PyQt.QtCore import pyqtSignal, QSettings, Qt, QUrl, QEvent
+from qgis.core import QgsProject, Qgis, QgsVectorLayer, QgsWkbTypes, QgsRasterLayer, QgsSettings, QgsMapLayer
 from openai import OpenAI
 from .rag_handler import RAGHandler
-from qgis.PyQt.QtGui import QDesktopServices, QTextCharFormat, QColor, QTextCursor
+from qgis.PyQt.QtGui import QDesktopServices, QTextCharFormat, QColor, QTextCursor, QIcon
 from qgis.PyQt.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QLineEdit, QTextEdit, QLabel,
                                 QTabWidget, QListWidget, QComboBox, QCheckBox,
-                                QProgressBar, QMessageBox)
+                                QProgressBar, QMessageBox, QGroupBox, QSizePolicy,
+                                QToolButton, QStyle, QTextBrowser)
+from .work_widget import WorkWidget  # 임시로 제거
+from .knowhow_widget import KnowHowWidget
+
+from qgis.utils import iface
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'QOllama_dockwidget_base.ui'))
@@ -44,159 +58,248 @@ class QOllamaDockWidget(QDockWidget):
 
     closingPlugin = pyqtSignal()
 
-    def __init__(self, iface):
+    def __init__(self, parent=None):
         """초기화"""
-        super(QOllamaDockWidget, self).__init__()
-        self.iface = iface
-        self.chat_history = []
-        self.rag_handler = None
-        self.api_key = None
+        super().__init__("QOllama", parent)
+        
+        # QSettings 초기화
         self.settings = QSettings()
-        self.current_pdf_path = None  # PDF 파일 경로 저장
-        self.analysis_file_path = None  # 분석 파일 경로 저장
         
-        # 메시지 색상 정의 (초기화 순서 변경)
-        self.message_colors = {
-            '[시스템]': QColor(128, 128, 128),  # 회색
-            '[사용자]': QColor(0, 100, 200),    # 파란색
-            '[AI]': QColor(34, 139, 34)         # 초록색
-        }
+        # RAG 핸들러 초기화
+        self.rag_handler = RAGHandler()
         
-        # 기본 설정
-        self.setWindowTitle("QOllama")
-        self.setMinimumWidth(400)
+        # UI 설정
+        self.setupUi()
         
-        # 메인 위젯 및 레이아웃 설정
+        # 도킹 위젯 특성 설정 - 기본 기능 활성화
+        self.setFeatures(QDockWidget.DockWidgetFloatable | 
+                        QDockWidget.DockWidgetMovable | 
+                        QDockWidget.DockWidgetClosable)
+        
+        # 크기 정책 설정
+        self.setMinimumWidth(300)
+        
+        # 초기 크기 설정
+        if parent:
+            self.resize(parent.width() // 3, parent.height())
+            
+    def setupUi(self):
+        """UI 초기 설정"""
+        # 메인 위젯 생성
         self.main_widget = QWidget()
-        self.main_layout = QVBoxLayout(self.main_widget)
         self.setWidget(self.main_widget)
         
-        # 탭 위젯 생성
-        self.tab_widget = QTabWidget()
-        self.main_layout.addWidget(self.tab_widget)
+        # 메인 레이아웃 설정
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(0, 0, 0, 0)  # 여백 제거
+        self.main_widget.setLayout(self.main_layout)
         
-        # 탭 생성
-        self.setup_main_tab()
-        self.setup_settings_tab()
-        self.setup_info_tab()
-        self.setup_connections()
+        # 크기 정책 설정
+        size_policy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self.main_widget.setSizePolicy(size_policy)
         
-        # 저장된 API 키 로드
-        self.load_api_key()
+        # 탭 위젯 설정
+        self.setup_tabs()
+        
+    def resizeEvent(self, event):
+        """크기 변경 이벤트 처리"""
+        super().resizeEvent(event)
+        if self.parent():
+            # 부모 위젯 너비의 1/3 유지
+            current_width = self.width()
+            parent_width = self.parent().width()
+            target_width = parent_width // 3
+            
+            # 현재 너비가 목표 너비와 크게 다른 경우에만 조정
+            if abs(current_width - target_width) > 50:
+                self.resize(target_width, self.height())
+            
+    def showEvent(self, event):
+        """표시 이벤트 처리"""
+        super().showEvent(event)
+        if self.parent():
+            # 초기 표시 시 부모 위젯 너비의 1/3 사용
+            self.resize(self.parent().width() // 3, self.parent().height())
 
-    def setup_main_tab(self):
-        """메인 탭 설정"""
-        main_tab = QWidget()
-        layout = QVBoxLayout(main_tab)
+    def setup_tabs(self):
+        """탭 설정"""
+        self.tab_widget = QTabWidget()
         
-        # 레이어 관리 영역
-        layer_group = QWidget()
-        layer_layout = QHBoxLayout(layer_group)
+        # 탭 위젯 크기 정책 설정
+        self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
-        # 레이어 콤보박스
-        self.layer_combo = QComboBox()
-        self.reload_layers_button = QPushButton("레이어 새로고침")
-        layer_layout.addWidget(self.layer_combo)
-        layer_layout.addWidget(self.reload_layers_button)
-        layout.addWidget(layer_group)
+        # 레이어 정보 탭
+        self.layer_info_tab = QWidget()
+        self.setup_layer_info_ui()
+        self.tab_widget.addTab(self.layer_info_tab, "레이어 정보")
         
-        # 레이어 처리 버튼들
-        button_group = QWidget()
-        button_layout = QHBoxLayout(button_group)
-        self.process_button = QPushButton("레이어 처리")
-        self.view_analysis_button = QPushButton("분석 내용 보기")
-        self.view_analysis_button.setEnabled(False)
-        button_layout.addWidget(self.process_button)
-        button_layout.addWidget(self.view_analysis_button)
-        layout.addWidget(button_group)
         
-        # 프로그레스바 추가
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
+        # 내 작업업 탭
+        self.work_tab = WorkWidget()
+        self.tab_widget.addTab(self.work_tab, "내 작업")
         
-        # 분석 파일 경로 표시 레이블
-        self.analysis_path_label = QLabel()
-        self.analysis_path_label.setVisible(False)
-        self.analysis_path_label.setWordWrap(True)
-        self.analysis_path_label.setStyleSheet("color: blue; text-decoration: underline;")
-        self.analysis_path_label.setCursor(Qt.PointingHandCursor)
-        self.analysis_path_label.mousePressEvent = self.open_analysis_file
-        layout.addWidget(self.analysis_path_label)
+        
+        # 내 노하우 탭
+        self.knowhow_tab = KnowHowWidget()
+        self.tab_widget.addTab(self.knowhow_tab, "내 노하우")
+        
+        # 설정 탭
+        self.settings_tab = QWidget()
+        self.setup_settings_ui()
+        self.tab_widget.addTab(self.settings_tab, "설정")
+        
+        # 탭 위젯을 메인 레이아웃에 추가
+        self.main_layout.addWidget(self.tab_widget)
+
+    def setup_layer_info_ui(self):
+        """레이어 정보 탭 UI 설정"""
+        layout = QVBoxLayout()
+        self.layer_info_tab.setLayout(layout)
+        
+        # 상단 버튼 영역
+        button_layout = QHBoxLayout()
+        
+        # 버튼 컨테이너 위젯 생성
+        button_container = QWidget()
+        button_container_layout = QHBoxLayout(button_container)
+        button_container_layout.setContentsMargins(0, 0, 0, 0)
+        button_container_layout.setSpacing(5)
+        
+        # 레이어 정보 갱신 버튼 (70%)
+        self.refresh_button = QPushButton("레이어 정보 갱신하기")
+        self.refresh_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.refresh_button.clicked.connect(self.process_all_layers)
+        button_container_layout.addWidget(self.refresh_button, 70)
+        
+        # 외부 에디터로 보기 버튼 (30%)
+        self.view_text_button = QPushButton("참조 텍스트 보기")
+        self.view_text_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.view_text_button.clicked.connect(self.view_reference_text)
+        self.view_text_button.setEnabled(False)  # 초기에는 비활성화
+        button_container_layout.addWidget(self.view_text_button, 30)
+        
+        button_layout.addWidget(button_container)
+        button_layout.addStretch()  # 나머지 공간을 채움
+        
+        layout.addLayout(button_layout)
         
         # 채팅 표시 영역
-        self.chat_display = QTextEdit()
-        self.chat_display.setReadOnly(True)
-        self.chat_display.setMinimumHeight(200)
+        self.chat_display = QTextBrowser()
+        self.chat_display.setOpenExternalLinks(False)
+        self.chat_display.anchorClicked.connect(self.open_file_from_link)
+        self.chat_display.setTextInteractionFlags(
+            Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard | Qt.LinksAccessibleByMouse
+        )
         self.chat_display.setStyleSheet("""
-        QTextEdit {
-            background-color: white;
-            color: black;
-            font-family: Arial;
-            font-size: 10pt;
-        }
-    """)
+            QTextBrowser {
+                background-color: white;
+                font-family: Arial;
+                font-size: 10pt;
+            }
+        """)
         layout.addWidget(self.chat_display)
         
         # 입력 영역
-        input_group = QWidget()
-        input_layout = QHBoxLayout(input_group)
-        self.input_text = QLineEdit()
-        self.input_text.setPlaceholderText("질문을 입력하세요...")
-        self.send_button = QPushButton("전송")
-        self.send_button.setEnabled(False)
+        input_layout = QHBoxLayout()
+        
+        self.input_text = QTextEdit()
+        self.input_text.setMinimumHeight(60)
+        self.input_text.setMaximumHeight(100)
+        self.input_text.setAcceptRichText(False)
+        self.input_text.installEventFilter(self)
+        
         input_layout.addWidget(self.input_text)
+        
+        # 전송 버튼
+        self.send_button = QPushButton("전송")
+        self.send_button.clicked.connect(self.send_message)
         input_layout.addWidget(self.send_button)
-        layout.addWidget(input_group)
         
-        self.tab_widget.addTab(main_tab, "메인")
-        self.update_layer_list()
+        layout.addLayout(input_layout)
 
-    def setup_settings_tab(self):
-        """설정 탭 설정"""
-        settings_tab = QWidget()
-        layout = QVBoxLayout(settings_tab)
+    def eventFilter(self, obj, event):
+        """이벤트 필터 처리"""
+        # if obj == self.input_text and event.type() == QEvent.KeyPress:
+        #     if event.key() == Qt.Key_Return or event.key() == Qt.Key_Enter:
+        #         if event.modifiers() == Qt.ControlModifier:
+        #             # Ctrl+Enter: 줄바꿈
+        #             cursor = self.input_text.textCursor()
+        #             cursor.insertText('\n')
+        #             return True
+        #         else:
+        #             # Enter: 메시지 전송
+        #             self.send_message()
+        #             return True
+        return super().eventFilter(obj, event)
+
+    def send_message(self):
+        """메시지 전송"""
+        text = self.input_text.toPlainText().strip()
+        if text:
+            # 사용자 메시지 - 빨간색
+            self.chat_display.append(f'\n<span style="color: #FF0000;">[사용자] {text}</span>')
+            self.input_text.clear()
+            
+            try:
+                # API 키 확인
+                api_key = self.get_api_key()
+                if not api_key:
+                    self.chat_display.append('[시스템] OpenAI API 키가 설정되지 않았습니다.')
+                    return
+                    
+                # RAG 핸들러로 응답 생성
+                response = self.rag_handler.query(text)
+                
+                # AI 응답 - 파란색
+                self.chat_display.append(f'<span style="color: #0000FF;">[AI] {response}</span>')
+                
+            except Exception as e:
+                error_msg = f"메시지 처리 중 오류가 발생했습니다: {str(e)}"
+                self.chat_display.append(f"[시스템] {error_msg}")
+                QMessageBox.warning(self, "오류", error_msg)
+
+    def setup_settings_ui(self):
+        """설정 탭 UI 설정"""
+        layout = QVBoxLayout()
+        self.settings_tab.setLayout(layout)
         
-        # OpenAI API 키 설정
-        api_group = QWidget()
-        api_layout = QVBoxLayout(api_group)
+        # API 키 입력 그룹
+        api_group = QGroupBox("OpenAI API 설정")
+        api_layout = QVBoxLayout()
+        api_group.setLayout(api_layout)
         
-        api_label = QLabel("OpenAI API Key:")
+        # API 키 입력 필드
+        api_label = QLabel("API Key:")
         self.api_key_input = QLineEdit()
-        self.api_key_input.setEchoMode(QLineEdit.Password)
-        self.api_status_label = QLabel("API 키를 입력해주세요")
+        self.api_key_input.setEchoMode(QLineEdit.Password)  # 입력 값 숨김
         
-        # API 키 저장 체크박스 추가
+        # 저장된 API 키 불러오기
+        saved_api_key = self.settings.value("QOllama/api_key", "", type=str)
+        self.api_key_input.setText(saved_api_key)
+        
+        # API 키 저장 체크박스
         self.save_api_checkbox = QCheckBox("API 키 저장")
-        self.save_api_checkbox.setChecked(self.settings.value("QOllama/save_api_key", False, type=bool))
+        self.save_api_checkbox.setChecked(bool(saved_api_key))  # 저장된 키가 있으면 체크
         
+        # API 키 저장 버튼
+        save_button = QPushButton("저장")
+        save_button.clicked.connect(self.save_api_key)
+        
+        # 레이아웃에 위젯 추가
         api_layout.addWidget(api_label)
         api_layout.addWidget(self.api_key_input)
         api_layout.addWidget(self.save_api_checkbox)
-        api_layout.addWidget(self.api_status_label)
+        api_layout.addWidget(save_button)
         
         layout.addWidget(api_group)
         layout.addStretch()
-        
-        self.tab_widget.addTab(settings_tab, "설정")
-
-    def setup_info_tab(self):
-        """정보 탭 설정"""
-        self.info_tab = QWidget()
-        self.tab_widget.addTab(self.info_tab, "정보")
-        
-        # 각 탭의 UI 설정
-        self.setup_info_ui()
 
     def setup_connections(self):
         """시그널-슬롯 연결"""
         self.api_key_input.textChanged.connect(self.update_api_key)
         self.save_api_checkbox.stateChanged.connect(self.handle_save_api_setting)
-        self.process_button.clicked.connect(self.process_layer)
-        self.send_button.clicked.connect(self.send_message)
+        self.refresh_button.clicked.connect(self.process_all_layers)
         self.input_text.returnPressed.connect(self.send_message)
-        self.reload_layers_button.clicked.connect(self.update_layer_list)
-        self.view_analysis_button.clicked.connect(self.view_analysis)
 
     def load_api_key(self):
         """저장된 API 키 로드"""
@@ -218,13 +321,6 @@ class QOllamaDockWidget(QDockWidget):
             self.settings.remove("QOllama/api_key")
             self.append_message("[시스템] 저장된 API 키가 삭제되었습니다.")
 
-    def update_layer_list(self):
-        """레이어 목록 업데이트"""
-        self.layer_combo.clear()
-        layers = QgsProject.instance().mapLayers().values()
-        for layer in layers:
-            self.layer_combo.addItem(layer.name(), layer)
-
     def update_api_key(self):
         """API 키 업데이트 및 상태 표시"""
         api_key = self.api_key_input.text().strip()
@@ -232,7 +328,6 @@ class QOllamaDockWidget(QDockWidget):
             try:
                 self.api_key = api_key
                 self.rag_handler = RAGHandler()
-                self.process_button.setEnabled(True)
                 self.api_status_label.setText("API 키가 설정되었습니다")
                 self.api_status_label.setStyleSheet("color: green")
                 
@@ -254,118 +349,238 @@ class QOllamaDockWidget(QDockWidget):
             self.rag_handler = None
             self.api_key = None
 
-    def process_layer(self):
-        """레이어 처리"""
-        if not self.api_key or not self.rag_handler:
-            self.append_message("[시스템] API 키를 먼저 설정해주세요.")
-            self.tab_widget.setCurrentIndex(1)
-            return
-
-        try:
-            layer = self.layer_combo.currentData()
-            if not layer:
-                self.append_message("[시스템] 레이어를 선택해주세요.")
-                return
-
-            self.progress_bar.setVisible(True)
-            self.progress_bar.setValue(0)
-            self.append_message("[시스템] 레이어 처리 중...")
-            
-            # 진행 상태 업데이트
-            self.progress_bar.setValue(20)
-            self.rag_handler.process_layer(layer)
-            self.progress_bar.setValue(80)
-            
-            # 분석 파일 자동 생성
-            self.save_analysis()
-            self.progress_bar.setValue(100)
-            
-            self.append_message(f"[AI] '{layer.name()}' 레이어 처리가 완료되었습니다. 질문해 주세요!")
-            self.send_button.setEnabled(True)
-            self.view_analysis_button.setEnabled(True)
-            
-        except Exception as e:
-            self.append_message(f"[시스템] 오류가 발생했습니다: {str(e)}")
-            self.send_button.setEnabled(False)
-            self.view_analysis_button.setEnabled(False)
-        finally:
-            self.progress_bar.setVisible(False)
-
-    def save_analysis(self):
-        """분석 내용을 파일로 저장"""
-        try:
-            if self.rag_handler and self.rag_handler.gdf is not None:
-                # 기본 저장 경로 설정
-                default_path = os.path.join(
-                    os.path.expanduser("~"),
-                    "QOllama_Analysis"
-                )
-                if not os.path.exists(default_path):
-                    os.makedirs(default_path)
-                
-                # 파일명 생성 (현재 시간 포함)
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                layer_name = self.layer_combo.currentData().name()
-                file_name = f"analysis_{layer_name}_{timestamp}.md"
-                self.analysis_file_path = os.path.join(default_path, file_name)
-                
-                # 분석 내용 생성 및 저장
-                analysis = self.rag_handler.analyze_geodataframe(self.rag_handler.gdf)
-                with open(self.analysis_file_path, 'w', encoding='utf-8') as f:
-                    f.write(f"# {layer_name} 레이어 분석 보고서\n")
-                    f.write(f"생성 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                    f.write(analysis)
-                
-                # 파일 경로 표시
-                self.analysis_path_label.setText(f"분석 파일: {self.analysis_file_path}")
-                self.analysis_path_label.setVisible(True)
-                self.append_message(f"[시스템] 분석 파일이 저장되었습니다: {self.analysis_file_path}")
-                
-        except Exception as e:
-            self.append_message(f"[시스템] 분석 파일 저장 중 오류 발생: {str(e)}")
-
-    def view_analysis(self):
-        """분석 내용 보기"""
-        if not self.analysis_file_path or not os.path.exists(self.analysis_file_path):
-            self.save_analysis()
+    def get_knowhow_text(self):
+        """myknowhow 폴더에서 문서 텍스트 읽기"""
+        # myknowhow 폴더 경로
+        plugin_dir = os.path.dirname(__file__)
+        knowhow_dir = os.path.join(plugin_dir, 'myknowhow')
         
-        if self.analysis_file_path and os.path.exists(self.analysis_file_path):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(self.analysis_file_path))
-        else:
-            self.append_message("[시스템] 분석 파일을 찾을 수 없습니다.")
+        if not os.path.exists(knowhow_dir):
+            os.makedirs(knowhow_dir)
+            return ""
+        
+        self.knowhow_dir = knowhow_dir
+        
+        all_text = ""
+        
+        print( "knowhow_dir: ", knowhow_dir )
+        
+        # 텍스트 파일 읽기
+        for file in os.listdir(knowhow_dir):
+            file_path = os.path.join(knowhow_dir, file)
+            if file.endswith('.txt'):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content:
+                            all_text += f"\n## {file}\n{content}\n"
+                            
+                        self.chat_display.append(f"[시스템] {file} 지식화 완료 ")
+                        
+                except Exception as e:
+                    self.chat_display.append(f"[시스템] {file} 읽기 실패: {str(e)}")
+                    
+            elif file.endswith('.pdf'):
+                try:
+                    # PyPDF2가 설치되어 있는지 확인
+                    try:
+                        import PyPDF2
+                    except ImportError:
+                        self.chat_display.append("[시스템] PDF 파일을 읽기 위해서는 PyPDF2 모듈이 필요합니다.")
+                        continue
+                        
+                    with open(file_path, 'rb') as f:
+                        reader = PyPDF2.PdfReader(f)
+                        content = ""
+                        for page in reader.pages:
+                            content += page.extract_text()
+                        if content.strip():
+                            all_text += f"\n## {file}\n{content.strip()}\n"
+                            
+                        self.chat_display.append(f"[시스템] {file_path} 지식화 완료 ")
+                        
+                except Exception as e:
+                    self.chat_display.append(f"[시스템] {file} 읽기 실패: {str(e)}")
+                    
+        return all_text
 
-    def open_analysis_file(self, event):
-        """분석 파일 열기 (레이블 클릭 이벤트)"""
-        if self.analysis_file_path and os.path.exists(self.analysis_file_path):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(self.analysis_file_path))
-
-    def send_message(self):
-        """메시지 전송 처리"""
+    def process_all_layers(self):
+        """모든 레이어 처리"""
         try:
-            question = self.input_text.text().strip()
-            if not question:
-                return
+            info = "# 레이어 정보\n\n"
+            layers = QgsProject.instance().mapLayers().values()
             
-            # 사용자 질문 표시 (파란색)
-            self.chat_display.append(f'<div style="color: blue;"><b>[사용자]</b> {question}</div>')
-            self.input_text.clear()
+            for layer in layers:
+                info += f"## {layer.name()}\n"
+                
+                # 레이어 타입 확인
+                if isinstance(layer, QgsVectorLayer):
+                    # 벡터 레이어
+                    info += f"- 타입: 벡터\n"
+                    info += f"- 도형 유형: {self.get_geometry_type_name(layer.geometryType())}\n"
+                    info += f"- 피처 수: {layer.featureCount()}\n"
+                    info += f"- 필드 수: {len(layer.fields())}\n"
+                    info += f"- 좌표계: {layer.crs().authid()}\n"
+                    
+                    # 상세 분석 추가
+                    info += self.analyze_vector_layer(layer)
+                
+                elif isinstance(layer, QgsRasterLayer):
+                    # 래스터 레이어
+                    info += f"- 타입: 래스터\n"
+                    info += f"- 밴드 수: {layer.bandCount()}\n"
+                    info += f"- 너비: {layer.width()} 픽셀\n"
+                    info += f"- 높이: {layer.height()} 픽셀\n"
+                    info += f"- 좌표계: {layer.crs().authid()}\n"
+                    
+                    # 래스터 통계 추가
+                    stats = self.get_raster_statistics(layer)
+                    if stats:
+                        info += f"\n{stats}\n"
+                
+                info += "\n"
+                
+
             
-            # 응답 생성
-            answer = self.rag_handler.query(question)
+            # 채팅 창에 메시지 표시
+            self.chat_display.append("[시스템] 레이어 정보가 갱신되었습니다.")
             
-            # AI 응답 표시 (초록색) - 줄바꿈 보존
-            formatted_answer = answer.replace('\n', '<br>')  # 줄바꿈을 HTML <br> 태그로 변환
-            self.chat_display.append(f'<div style="color: green;"><b>[AI]</b> {formatted_answer}</div>')
-            self.chat_display.append("")  # 빈 줄 추가
+            # 노하우 텍스트 자동 추가
+            knowhow_text = self.get_knowhow_text()
+            self.chat_display.append("[시스템] 노하우 정보가 갱신되었습니다.")
             
-            # 스크롤을 가장 아래로 이동
-            self.chat_display.verticalScrollBar().setValue(
-                self.chat_display.verticalScrollBar().maximum()
-            )
+            text = info + knowhow_text
             
+            self.rag_handler.create_vector_store( text )
+            
+            # 텍스트 파일로 저장
+            self.save_reference_text()
+            
+            # 버튼 활성화
+            self.view_text_button.setEnabled(True)
+                
+                
         except Exception as e:
-            QMessageBox.warning(self, "오류", f"메시지 처리 중 오류가 발생했습니다: {str(e)}")
+            error_msg = f"레이어 처리 중 오류가 발생했습니다: {str(e)}"
+            self.chat_display.append(f"[시스템] {error_msg}")
+            iface.messageBar().pushMessage("오류", error_msg, level=Qgis.Critical)
+
+    def get_geometry_type_name(self, geom_type):
+        """도형 유형 이름 반환"""
+        types = {
+            0: "포인트",
+            1: "라인",
+            2: "폴리곤",
+            3: "알 수 없음",
+            4: "NULL",
+            5: "복합 도형"
+        }
+        return types.get(geom_type, "정의되지 않음")
+
+    def analyze_vector_layer(self, layer):
+        """벡터 레이어 분석"""
+        try:
+            analysis = f"### 벡터 레이어 분석\n"
+            
+            # 레이어 정보   
+            analysis += f"- 레이어 이름: {layer.name()}\n"
+            analysis += f"- 도형 유형: {self.get_geometry_type_name(layer.geometryType())}\n"
+            analysis += f"- 좌표계: {layer.crs().authid()}\n"
+            
+            # 피처 수 추가
+            analysis += f"- 피처 수: {layer.featureCount()}\n"
+            
+            # 필드 정보 추가
+            fields = layer.fields()
+            analysis += f"- 필드 수: {len(fields)}\n"
+            for field in fields:
+                analysis += f"  - 필드 이름: {field.name()}, 유형: {field.type()}\n"
+                
+            # GeoPandas로 기초 통계 추가
+            try:
+                # 레이어를 GeoDataFrame으로 변환
+                gdf = gpd.GeoDataFrame.from_features([feat for feat in layer.getFeatures()])
+                
+                # 수치형 컬럼에 대한 기초 통계
+                numeric_cols = gdf.select_dtypes(include=[np.number]).columns
+                if len(numeric_cols) > 0:
+                    analysis += "\n#### 수치 데이터 통계\n"
+                    for col in numeric_cols:
+                        if col != 'geometry':
+                            stats = gdf[col].describe()
+                            analysis += f"\n{col} 통계:\n"
+                            analysis += f"  - 평균: {stats['mean']:.2f}\n"
+                            analysis += f"  - 중앙값: {stats['50%']:.2f}\n"
+                            analysis += f"  - 표준편차: {stats['std']:.2f}\n"
+                            analysis += f"  - 최소값: {stats['min']:.2f}\n"
+                            analysis += f"  - 최대값: {stats['max']:.2f}\n"
+                
+                # 도형 면적/길이 통계 (도형 유형에 따라)
+                if layer.geometryType() == 2:  # 폴리곤
+                    areas = gdf.geometry.area
+                    analysis += "\n#### 면적 통계\n"
+                    analysis += f"  - 평균 면적: {areas.mean():.2f}\n"
+                    analysis += f"  - 최소 면적: {areas.min():.2f}\n"
+                    analysis += f"  - 최대 면적: {areas.max():.2f}\n"
+                elif layer.geometryType() == 1:  # 라인
+                    lengths = gdf.geometry.length
+                    analysis += "\n#### 길이 통계\n"
+                    analysis += f"  - 평균 길이: {lengths.mean():.2f}\n"
+                    analysis += f"  - 최소 길이: {lengths.min():.2f}\n"
+                    analysis += f"  - 최대 길이: {lengths.max():.2f}\n"
+                    
+            except Exception as e:
+                analysis += f"\n[GeoPandas 통계 계산 중 오류 발생: {str(e)}]\n"
+
+            return analysis
+        except Exception as e:
+            return f"벡터 레이어 분석 중 오류 발생: {str(e)}"   
+
+    def get_raster_statistics(self, layer):
+        """래스터 레이어 통계 정보 반환"""
+        try:
+            stats = "### 래스터 통계\n"
+            
+            for band in range(1, layer.bandCount() + 1):
+                stats += f"\n#### 밴드 {band}\n"
+                
+                # 밴드 통계 가져오기
+                provider = layer.dataProvider()
+                min_val = provider.bandStatistics(band).minimumValue
+                max_val = provider.bandStatistics(band).maximumValue
+                mean = provider.bandStatistics(band).mean
+                std_dev = provider.bandStatistics(band).stdDev
+                
+                stats += f"- 최소값: {min_val:.2f}\n"
+                stats += f"- 최대값: {max_val:.2f}\n"
+                stats += f"- 평균값: {mean:.2f}\n"
+                stats += f"- 표준편차: {std_dev:.2f}\n"
+                
+                # 픽셀 타입 정보
+                data_type = provider.dataType(band)
+                stats += f"- 데이터 타입: {self.get_raster_data_type(data_type)}\n"
+                
+            return stats
+        except Exception as e:
+            return f"래스터 통계 계산 중 오류 발생: {str(e)}"
+
+    def get_raster_data_type(self, data_type):
+        """래스터 데이터 타입 이름 반환"""
+        types = {
+            0: "알 수 없음",
+            1: "Byte",
+            2: "UInt16",
+            3: "Int16",
+            4: "UInt32",
+            5: "Int32",
+            6: "Float32",
+            7: "Float64",
+            8: "CInt16",
+            9: "CInt32",
+            10: "CFloat32",
+            11: "CFloat64"
+        }
+        return types.get(data_type, "정의되지 않음")
 
     def append_message(self, message):
         """채팅 메시지 추가 (색상 적용)"""
@@ -393,9 +608,9 @@ class QOllamaDockWidget(QDockWidget):
         )
 
     def closeEvent(self, event):
-        """플러그인 종료 시 정리"""
-        # API 키 저장 설정이 해제되어 있으면 저장된 키 삭제
-        if not self.save_api_checkbox.isChecked():
+        """닫기 이벤트 처리"""
+        # API 키 저장 여부 확인
+        if hasattr(self, 'save_api_checkbox') and not self.save_api_checkbox.isChecked():
             self.settings.remove("QOllama/api_key")
         
         self.closingPlugin.emit()
@@ -424,20 +639,6 @@ class QOllamaDockWidget(QDockWidget):
             self.chat_display.append("대화 기록이 초기화되었습니다.")
         except Exception as e:
             QMessageBox.warning(self, "오류", f"대화 기록 초기화 중 오류가 발생했습니다: {str(e)}")
-
-    def setup_info_ui(self):
-        """정보 탭 UI 설정"""
-        # 정보 탭 레이아웃
-        info_layout = QVBoxLayout()
-        self.info_tab.setLayout(info_layout)
-        
-        # 업데이트 내역 표시를 위한 텍스트 에디터
-        self.changelog_display = QTextEdit()
-        self.changelog_display.setReadOnly(True)
-        info_layout.addWidget(self.changelog_display)
-        
-        # 업데이트 내역 로드
-        self.load_changelog()
 
     def load_changelog(self):
         """업데이트 내역 로드"""
@@ -490,3 +691,122 @@ class QOllamaDockWidget(QDockWidget):
         """
         
         return html
+
+    def clear_chat(self):
+        """대화 내용 초기화"""
+        try:
+            # 채팅 디스플레이 초기화
+            self.chat_display.clear()
+            
+            # RAG 핸들러의 대화 기록 초기화
+            if hasattr(self, 'rag_handler'):
+                self.rag_handler.clear_chat_history()
+            
+            # 시스템 메시지 표시
+            self.chat_display.append("[시스템] 대화 내용이 초기화되었습니다.")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"대화 내용 초기화 중 오류가 발생했습니다: {str(e)}")
+
+    def setup_rag_handler(self):
+        """RAG 핸들러 설정"""
+        try:
+            # API 키 가져오기
+            api_key = self.api_key_input.text().strip()
+            
+            # RAG 핸들러 초기화
+            self.rag_handler = RAGHandler(api_key=api_key)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"RAG 핸들러 초기화 중 오류가 발생했습니다: {str(e)}")
+
+    def toggle_api_key_view(self):
+        """API 키 표시/숨김 토글"""
+        if self.api_key_input.echoMode() == QLineEdit.Password:
+            self.api_key_input.setEchoMode(QLineEdit.Normal)
+        else:
+            self.api_key_input.setEchoMode(QLineEdit.Password)
+
+    def apply_settings(self):
+        """설정 적용"""
+        try:
+            api_key = self.api_key_input.text().strip()
+            
+            # API 키 저장 여부 확인
+            if self.save_api_checkbox.isChecked():
+                self.settings.setValue("QOllama/api_key", api_key)
+            else:
+                self.settings.remove("QOllama/api_key")
+            
+            # RAG 핸들러 재초기화
+            self.setup_rag_handler()
+            
+            QMessageBox.information(self, "성공", "설정이 적용되었습니다.")
+            
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"설정 적용 중 오류가 발생했습니다: {str(e)}")
+
+    def save_api_key(self):
+        """API 키 저장"""
+        api_key = self.api_key_input.text()
+        if self.save_api_checkbox.isChecked():
+            self.settings.setValue("QOllama/api_key", api_key)
+            QMessageBox.information(self, "저장 완료", "API 키가 저장되었습니다.")
+        else:
+            self.settings.remove("QOllama/api_key")
+            QMessageBox.information(self, "저장 해제", "저장된 API 키가 제거되었습니다.")
+
+    def get_api_key(self):
+        """저장된 API 키 반환"""
+        if hasattr(self, 'api_key_input'):
+            return self.api_key_input.text()
+        return self.settings.value("QOllama/api_key", "", type=str)
+
+    def open_file_from_link(self, url):
+        """링크 클릭 시 파일 열기 (채팅 내용 유지)"""
+        try:
+            file_path = url.toLocalFile()
+            self.open_file_with_default_editor(file_path)
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"파일 열기 실패: {str(e)}")
+
+    def open_file_with_default_editor(self, file_path):
+        """기본 편집기로 파일 열기"""
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(file_path)
+            else:  # macOS, Linux
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.call(('open', file_path))
+                else:  # Linux
+                    subprocess.call(('xdg-open', file_path))
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"파일 열기 실패: {str(e)}")
+
+    def save_reference_text(self):
+        """참조 텍스트를 파일로 저장"""
+        try:
+            # 저장 디렉토리 확인/생성
+            save_dir = os.path.join(os.path.expanduser('~'), 'QOllama_Analysis')
+            if not os.path.exists(save_dir):
+                os.makedirs(save_dir)
+            
+            # 파일 저장
+            self.text_file_path = os.path.join(save_dir, 'reference_text.txt')
+            with open(self.text_file_path, 'w', encoding='utf-8') as f:
+                f.write(self.rag_handler.reference_text)
+                
+        except Exception as e:
+            iface.messageBar().pushMessage("오류", f"텍스트 파일 저장 중 오류: {str(e)}", level=Qgis.Critical)
+
+    def view_reference_text(self):
+        """저장된 텍스트 파일을 외부 에디터로 열기"""
+        try:
+            if hasattr(self, 'text_file_path') and os.path.exists(self.text_file_path):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(self.text_file_path))
+            else:
+                iface.messageBar().pushMessage("알림", "텍스트 파일이 아직 생성되지 않았습니다.", 
+                                             level=Qgis.Warning)
+        except Exception as e:
+            iface.messageBar().pushMessage("오류", f"파일 열기 중 오류: {str(e)}", 
+                                         level=Qgis.Critical)
