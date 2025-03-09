@@ -136,29 +136,31 @@ class QOllamaDockWidget(QDockWidget):
             self.resize(self.parent().width() // 3, self.parent().height())
 
     def setup_tabs(self):
-        """탭 설정"""
+        """탭 위젯 설정"""
         self.tab_widget = QTabWidget()
         
         # 레이어 정보 탭
         self.layer_info_tab = QWidget()
         self.setup_layer_info_ui()
-        self.tab_widget.addTab(self.layer_info_tab, "지오쳇")
-        
-        # 내 작업 탭
-        self.work_tab = WorkWidget()
-        self.tab_widget.addTab(self.work_tab, "내 작업")
-        
-        # 내 노하우 탭
-        self.knowhow_tab = KnowHowWidget()
-        self.tab_widget.addTab(self.knowhow_tab, "내 노하우")
+        self.tab_widget.addTab(self.layer_info_tab, "레이어 정보")
         
         # 설정 탭
         self.settings_tab = QWidget()
         self.setup_settings_ui()
         self.tab_widget.addTab(self.settings_tab, "설정")
         
-        # 탭 위젯을 메인 레이아웃에 추가
-        self.main_layout.addWidget(self.tab_widget)
+        # 내 노하우 탭
+        self.my_knowhow_tab = KnowHowWidget()
+        self.tab_widget.addTab(self.my_knowhow_tab, "내 노하우")
+        
+        # 내 작업 탭
+        self.my_job_tab = WorkWidget()
+        self.tab_widget.addTab(self.my_job_tab, "내 작업")
+        
+        # 정보 탭
+        self.info_tab = QWidget()
+        self.setup_info_ui()
+        self.tab_widget.addTab(self.info_tab, "정보")
 
     def setup_layer_info_ui(self):
         """레이어 정보 탭 UI 설정"""
@@ -909,3 +911,41 @@ class QOllamaDockWidget(QDockWidget):
         except Exception as e:
             iface.messageBar().pushMessage("오류", f"파일 열기 중 오류: {str(e)}", 
                                          level=Qgis.Critical)
+
+    def setup_info_ui(self):
+        """정보 탭 UI 설정"""
+        layout = QVBoxLayout()
+        self.info_tab.setLayout(layout)
+        
+        # README 내용을 표시할 텍스트 브라우저
+        self.info_display = QTextBrowser()
+        self.info_display.setOpenExternalLinks(True)  # 외부 링크 클릭 가능
+        layout.addWidget(self.info_display)
+        
+        # README.md 파일 로드
+        self.load_readme()
+
+    def load_readme(self):
+        """README.md 파일 로드 및 표시"""
+        try:
+            # README.md 파일 경로
+            readme_path = os.path.join(os.path.dirname(__file__), 'README.md')
+            
+            if os.path.exists(readme_path):
+                with open(readme_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    
+                # 마크다운을 HTML로 변환 (선택사항)
+                try:
+                    import markdown
+                    html_content = markdown.markdown(content)
+                    self.info_display.setHtml(html_content)
+                except ImportError:
+                    # markdown 모듈이 없는 경우 텍스트로 표시
+                    self.info_display.setPlainText(content)
+                    
+            else:
+                self.info_display.setPlainText("README.md 파일을 찾을 수 없습니다.")
+                
+        except Exception as e:
+            self.info_display.setPlainText(f"README.md 파일 로드 중 오류 발생: {str(e)}")
