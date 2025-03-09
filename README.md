@@ -58,7 +58,7 @@ QOllama는 QGIS에서 AI 기술을 활용하여 공간 데이터 분석을 지�
 📧 dsyou20@gmail.com / (주)엘컴텍
 
 ## 라이선스
-이 플러그인은 GPL v2 라이선스를 따릅니다.
+이 플러그인은 Apache License v2 라이선스를 따릅니다.
 
 ---
 © 2024 QOllama. All rights reserved.
