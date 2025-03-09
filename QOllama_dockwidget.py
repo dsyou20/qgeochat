@@ -142,20 +142,23 @@ class QOllamaDockWidget(QDockWidget):
         # 레이어 정보 탭
         self.layer_info_tab = QWidget()
         self.setup_layer_info_ui()
-        self.tab_widget.addTab(self.layer_info_tab, "레이어 정보")
+        self.tab_widget.addTab(self.layer_info_tab, "지오챗")
         
-        # 설정 탭
-        self.settings_tab = QWidget()
-        self.setup_settings_ui()
-        self.tab_widget.addTab(self.settings_tab, "설정")
+        # 내 작업 탭
+        self.my_job_tab = WorkWidget()
+        self.tab_widget.addTab(self.my_job_tab, "내 작업")
+        
         
         # 내 노하우 탭
         self.my_knowhow_tab = KnowHowWidget()
         self.tab_widget.addTab(self.my_knowhow_tab, "내 노하우")
         
-        # 내 작업 탭
-        self.my_job_tab = WorkWidget()
-        self.tab_widget.addTab(self.my_job_tab, "내 작업")
+
+        
+        # 설정 탭
+        self.settings_tab = QWidget()
+        self.setup_settings_ui()
+        self.tab_widget.addTab(self.settings_tab, "설정")
         
         # 정보 탭
         self.info_tab = QWidget()
@@ -177,13 +180,13 @@ class QOllamaDockWidget(QDockWidget):
         button_container_layout.setSpacing(5)
         
         # 레이어 정보 갱신 버튼 (70%)
-        self.refresh_button = QPushButton("레이어 정보 갱신하기")
+        self.refresh_button = QPushButton("지식 갱신하기")
         self.refresh_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.refresh_button.clicked.connect(self.process_all_layers)
         button_container_layout.addWidget(self.refresh_button, 70)
         
         # 외부 에디터로 보기 버튼 (30%)
-        self.view_text_button = QPushButton("참조 텍스트 보기")
+        self.view_text_button = QPushButton("지식 보기")
         self.view_text_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.view_text_button.clicked.connect(self.view_reference_text)
         self.view_text_button.setEnabled(False)  # 초기에는 비활성화
