@@ -305,9 +305,13 @@ class QOllamaDockWidget(QDockWidget):
                     
                 # AI 응답 포맷팅 및 표시
                 formatted_response = self.format_ai_response(response)
+                first = True
                 for line in formatted_response.split('\n'):
-                    self.chat_display.append(f'<span style="color: #008000;">{line}</span>')
-                
+                    if first:
+                        self.chat_display.append(f'<span style="color: #008000;">[AI] {line.strip()}</span>')
+                        first = False
+                    else:
+                        self.chat_display.append(f'<span style="color: #008000;">{line}</span>')
             except Exception as e:
                 error_msg = f"메시지 처리 중 오류가 발생했습니다: {str(e)}"
                 self.chat_display.append(f"[시스템] {error_msg}")
