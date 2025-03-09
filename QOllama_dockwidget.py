@@ -33,7 +33,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from qgis.PyQt.QtCore import Qt, QEvent  # QEvent 추가
+from qgis.PyQt.QtCore import Qt, QEvent, QSize
 from qgis.PyQt import QtGui, QtWidgets, uic
 from qgis.PyQt.QtCore import pyqtSignal, QSettings, Qt, QUrl, QEvent
 from qgis.core import QgsProject, Qgis, QgsVectorLayer, QgsWkbTypes, QgsRasterLayer, QgsSettings, QgsMapLayer
@@ -72,17 +72,20 @@ class QOllamaDockWidget(QDockWidget):
         self.setupUi()
         
         # 도킹 위젯 특성 설정 - 기본 기능 활성화
-        self.setFeatures(QDockWidget.DockWidgetFloatable | 
+        self.setFeatures(QDockWidget.DockWidgetClosable | 
                         QDockWidget.DockWidgetMovable | 
-                        QDockWidget.DockWidgetClosable)
+                        QDockWidget.DockWidgetFloatable)
         
         # 크기 정책 설정
-        self.setMinimumWidth(300)
+        self.setMinimumSize(QSize(300, 400))  # 최소 크기 설정
         
         # 초기 크기 설정
         if parent:
             self.resize(parent.width() // 3, parent.height())
             
+        # 닫기 이벤트 처리를 위한 플래그
+        self.is_closing = False
+        
     def setupUi(self):
         """UI 초기 설정"""
         # 메인 위젯 생성
@@ -92,27 +95,38 @@ class QOllamaDockWidget(QDockWidget):
         # 메인 레이아웃 설정
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(0, 0, 0, 0)  # 여백 제거
+        self.main_layout.setSpacing(0)  # 위젯 간 간격 제거
         self.main_widget.setLayout(self.main_layout)
         
-        # 크기 정책 설정
-        size_policy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
-        self.main_widget.setSizePolicy(size_policy)
+        # 도킹 위젯 설정
+        self.setFeatures(QDockWidget.DockWidgetClosable | 
+                        QDockWidget.DockWidgetMovable | 
+                        QDockWidget.DockWidgetFloatable)
+        self.setMinimumSize(QSize(300, 400))  # 최소 크기 설정
         
         # 탭 위젯 설정
         self.setup_tabs()
+        self.main_layout.addWidget(self.tab_widget)
+        
+        # 크기 정책 설정
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.main_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
     def resizeEvent(self, event):
-        """크기 변경 이벤트 처리"""
+        """크기 조절 이벤트 처리"""
         super().resizeEvent(event)
-        if self.parent():
-            # 부모 위젯 너비의 1/3 유지
-            current_width = self.width()
-            parent_width = self.parent().width()
-            target_width = parent_width // 3
+        
+        # 플로팅 상태일 때 내부 위젯들의 크기 조절
+        if self.isFloating():
+            new_size = event.size()
+            self.main_widget.resize(new_size)
+            self.tab_widget.resize(new_size)
             
-            # 현재 너비가 목표 너비와 크게 다른 경우에만 조정
-            if abs(current_width - target_width) > 50:
-                self.resize(target_width, self.height())
+            # 각 탭의 내용도 크기 조절
+            for i in range(self.tab_widget.count()):
+                tab = self.tab_widget.widget(i)
+                tab.resize(new_size)
             
     def showEvent(self, event):
         """표시 이벤트 처리"""
@@ -125,19 +139,14 @@ class QOllamaDockWidget(QDockWidget):
         """탭 설정"""
         self.tab_widget = QTabWidget()
         
-        # 탭 위젯 크기 정책 설정
-        self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
         # 레이어 정보 탭
         self.layer_info_tab = QWidget()
         self.setup_layer_info_ui()
-        self.tab_widget.addTab(self.layer_info_tab, "레이어 정보")
+        self.tab_widget.addTab(self.layer_info_tab, "지오쳇")
         
-        
-        # 내 작업업 탭
+        # 내 작업 탭
         self.work_tab = WorkWidget()
         self.tab_widget.addTab(self.work_tab, "내 작업")
-        
         
         # 내 노하우 탭
         self.knowhow_tab = KnowHowWidget()
@@ -216,6 +225,10 @@ class QOllamaDockWidget(QDockWidget):
         input_layout.addWidget(self.send_button)
         
         layout.addLayout(input_layout)
+        
+        # 레이아웃의 크기 정책 설정
+        layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
 
     def eventFilter(self, obj, event):
         """이벤트 필터 처리"""
@@ -232,12 +245,27 @@ class QOllamaDockWidget(QDockWidget):
         #             return True
         return super().eventFilter(obj, event)
 
+    def format_ai_response(self, text):
+        """AI 응답 텍스트 포맷팅"""
+        formatted_lines = []
+        
+        # 줄 단위로 처리
+        lines = text.split('\n')
+        for line in lines:
+            #공백이나 텝을 &nbsp 로치환
+            line = line.replace(' ', '&nbsp;').replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')    
+            formatted_lines.append(line)
+        
+        return '\n'.join(formatted_lines)
+
     def send_message(self):
         """메시지 전송"""
         text = self.input_text.toPlainText().strip()
         if text:
             # 사용자 메시지 - 빨간색
-            self.chat_display.append(f'\n<span style="color: #FF0000;">[사용자] {text}</span>')
+            lines = text.split('\n')
+            for line in lines:
+                self.chat_display.append(f'<span style="color: #FF0000;">[사용자] {line}</span>')
             self.input_text.clear()
             
             try:
@@ -250,8 +278,30 @@ class QOllamaDockWidget(QDockWidget):
                 # RAG 핸들러로 응답 생성
                 response = self.rag_handler.query(text)
                 
-                # AI 응답 - 파란색
-                self.chat_display.append(f'<span style="color: #0000FF;">[AI] {response}</span>')
+                if False:
+                    # 파일로 저장하기
+                    # 응답을 파일로 저장
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    filename = f'response_{timestamp}.txt'
+                    filepath = os.path.join(os.path.dirname(__file__), 'responses', filename)
+                
+                    # responses 디렉토리가 없으면 생성
+                    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                    
+                    # 파일 저장
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(response)
+                        
+                    # 외부 편집기로 열기
+                    if os.name == 'nt':  # Windows
+                        os.startfile(filepath)
+                    else:  # Linux/Mac
+                        os.system(f'xdg-open "{filepath}"')
+                    
+                # AI 응답 포맷팅 및 표시
+                formatted_response = self.format_ai_response(response)
+                for line in formatted_response.split('\n'):
+                    self.chat_display.append(f'<span style="color: #008000;">{line}</span>')
                 
             except Exception as e:
                 error_msg = f"메시지 처리 중 오류가 발생했습니다: {str(e)}"
@@ -293,6 +343,10 @@ class QOllamaDockWidget(QDockWidget):
         
         layout.addWidget(api_group)
         layout.addStretch()
+        
+        # 레이아웃의 크기 정책 설정
+        layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
 
     def setup_connections(self):
         """시그널-슬롯 연결"""
@@ -404,6 +458,40 @@ class QOllamaDockWidget(QDockWidget):
                     
         return all_text
 
+    def get_script_text(self):
+        """myscripts 폴더에서 문서 텍스트 읽기"""
+        # myscripts 폴더 경로
+        plugin_dir = os.path.dirname(__file__)
+        script_dir = os.path.join(plugin_dir, 'myscripts')
+        
+        if not os.path.exists(script_dir):
+            os.makedirs(script_dir)
+            return ""
+        
+        self.script_dir = script_dir
+        
+        all_text = ""
+        
+        print( "script_dir: ", script_dir )
+        
+        # 텍스트 파일 읽기
+        for file in os.listdir(script_dir):
+            file_path = os.path.join(script_dir, file)
+            if file.endswith('.py'):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content:
+                            all_text += f"\n## {file}\n{content}\n"
+                            
+                        self.chat_display.append(f"[시스템] {file} 스크립트 로드 완료")
+                        
+                except Exception as e:
+                    self.chat_display.append(f"[시스템] {file} 읽기 실패: {str(e)}")
+                    
+        return all_text
+
+
     def process_all_layers(self):
         """모든 레이어 처리"""
         try:
@@ -449,7 +537,11 @@ class QOllamaDockWidget(QDockWidget):
             knowhow_text = self.get_knowhow_text()
             self.chat_display.append("[시스템] 노하우 정보가 갱신되었습니다.")
             
-            text = info + knowhow_text
+            # 스크립트 텍스트 자동 추가
+            script_text = self.get_script_text()
+            self.chat_display.append("[시스템] 스크립트 정보가 갱신되었습니다.")
+            
+            text = info + knowhow_text + script_text
             
             self.rag_handler.create_vector_store( text )
             
@@ -608,13 +700,20 @@ class QOllamaDockWidget(QDockWidget):
         )
 
     def closeEvent(self, event):
-        """닫기 이벤트 처리"""
-        # API 키 저장 여부 확인
-        if hasattr(self, 'save_api_checkbox') and not self.save_api_checkbox.isChecked():
-            self.settings.remove("QOllama/api_key")
-        
-        self.closingPlugin.emit()
-        event.accept()
+        """도킹 위젯 닫기 이벤트 처리"""
+        if self.isFloating():
+            event.ignore()
+            self.setFloating(False)
+            self.show()
+        else:
+            event.ignore()
+            self.hide()
+            
+    def show_dockwidget(self):
+        """도킹 위젯 표시"""
+        self.show()
+        self.setFloating(False)
+        iface.addDockWidget(Qt.RightDockWidgetArea, self)
 
     def setup_chat_ui(self):
         """채팅 UI 설정"""

@@ -1,0 +1,15 @@
+다음은 QGIS에서 모든 레이어의 이름을 출력하는 Python 코드입니다. 이 코드는 QGIS의 Python 콘솔에서 실행할 수 있습니다.
+
+```python
+# QGIS의 현재 프로젝트를 가져옵니다.
+project = QgsProject.instance()
+
+# 모든 레이어를 가져옵니다.
+layers = project.mapLayers().values()
+
+# 각 레이어의 이름을 출력합니다.
+for layer in layers:
+    print(layer.name())
+```
+
+이 코드는 현재 QGIS 프로젝트에 로드된 모든 레이어의 이름을 출력합니다. `QgsProject.instance()`를 사용하여 현재 프로젝트를 가져오고, `mapLayers().values()`를 통해 모든 레이어를 가져온 후, 각 레이어의 이름을 `layer.name()`을 통해 출력합니다.

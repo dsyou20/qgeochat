@@ -1,0 +1,28 @@
+QGIS에서 레이어 정보를 출력하는 Python 코드를 작성하려면 PyQGIS를 사용해야 합니다. 아래는 QGIS 환경에서 벡터 레이어의 기본 정보를 출력하는 예제 코드입니다.
+
+```python
+from qgis.core import QgsProject
+
+# 현재 프로젝트에서 레이어 가져오기
+layer = QgsProject.instance().mapLayersByName('building')[0]
+
+# 레이어 정보 출력
+print(f"레이어 이름: {layer.name()}")
+print(f"도형 유형: {layer.geometryType()}")
+print(f"피처 수: {layer.featureCount()}")
+print(f"필드 수: {len(layer.fields())}")
+
+# 필드 정보 출력
+for field in layer.fields():
+    print(f"필드 이름: {field.name()}, 유형: {field.typeName()}")
+
+# 면적 통계 출력 (폴리곤 레이어인 경우)
+if layer.geometryType() == QgsWkbTypes.PolygonGeometry:
+    total_area = 0
+    for feature in layer.getFeatures():
+        geom = feature.geometry()
+        total_area += geom.area()
+    print(f"총 면적: {total_area}")
+```
+
+이 코드는 'building'이라는 이름의 벡터 레이어를 가져와서 레이어의 기본 정보와 필드 정보를 출력합니다. 폴리곤 레이어인 경우에는 총 면적도 계산하여 출력합니다. QGIS Python 콘솔이나 스크립트 환경에서 실행할 수 있습니다.

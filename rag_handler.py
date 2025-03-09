@@ -25,6 +25,11 @@ from qgis.core import QgsSettings
 
 from langchain.chains.conversational_retrieval.prompts import QA_PROMPT
 
+from datetime import datetime
+import re
+import time
+
+
 class RAGHandler:
     def __init__(self, api_key=None):
         """초기화"""
@@ -160,6 +165,9 @@ class RAGHandler:
         except Exception as e:
             logging.error(f"벡터 저장소 생성 중 오류: {str(e)}")
             raise Exception(f"벡터 저장소 생성 중 오류: {str(e)}")
+
+
+
 
     def query(self, question: str) -> str:
         """질문에 대한 응답 생성"""

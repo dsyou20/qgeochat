@@ -30,7 +30,7 @@ class KnowHowWidget(QWidget):
         top_toolbar = QHBoxLayout()
         
         # 목록 갱신 버튼
-        self.refresh_btn = QPushButton("지식 목록 갱신")
+        self.refresh_btn = QPushButton("목록갱신")
         self.refresh_btn.setFixedWidth(100)
         self.refresh_btn.clicked.connect(self.refresh_knowhow_list)
         top_toolbar.addWidget(self.refresh_btn)
@@ -49,7 +49,7 @@ class KnowHowWidget(QWidget):
         # 새 지식 버튼 (아이콘)
         self.new_btn = QPushButton("N")
         self.new_btn.setIcon(self.style().standardIcon(QStyle.SP_FileIcon))
-        self.new_btn.setToolTip("새 지식 만들기")
+        self.new_btn.setToolTip("새 지식")
         self.new_btn.setFixedSize(24, 24)
         self.new_btn.clicked.connect(self.show_new_file_input)
         top_toolbar.addWidget(self.new_btn)
@@ -57,7 +57,7 @@ class KnowHowWidget(QWidget):
         # 삭제 버튼 (아이콘)
         self.delete_btn = QPushButton("D")
         self.delete_btn.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
-        self.delete_btn.setToolTip("선택한 지식 삭제")
+        self.delete_btn.setToolTip("삭제")
         self.delete_btn.setFixedSize(24, 24)
         self.delete_btn.clicked.connect(self.delete_knowhow)
         top_toolbar.addWidget(self.delete_btn)

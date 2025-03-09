@@ -4,6 +4,7 @@ import importlib.util
 from datetime import datetime
 from qgis.core import Qgis
 from qgis.utils import iface
+from io import StringIO
 
 class WorkHandler:
     def __init__(self):
@@ -146,35 +147,73 @@ if __name__ == '__main__':
             raise ValueError("실행할 스크립트를 선택해주세요.")
             
         try:
-            # 스크립트 전체 경로
-            filepath = os.path.join(self.scripts_dir, filename)
+            # 출력을 캡처하기 위한 StringIO 객체 생성
+            output_buffer = StringIO()
+            original_stdout = sys.stdout
+            sys.stdout = output_buffer
             
-            # 스크립트 내용 읽기
-            with open(filepath, 'r', encoding='utf-8') as f:
-                script_content = f.read()
-            
-            # QGIS Python 콘솔 컨텍스트에서 실행
-            from qgis.utils import iface
-            from qgis.core import QgsProject
-            
-            # 로컬 네임스페이스 생성
-            local_vars = {
-                'iface': iface,
-                'QgsProject': QgsProject
-            }
-            
-            # 스크립트 실행
-            exec(script_content, globals(), local_vars)
-            
-            # run_script 함수 실행
-            if 'run_script' in local_vars:
-                result = local_vars['run_script']()
-                return result if result else "스크립트가 실행되었습니다."
-            else:
-                return "run_script() 함수를 찾을 수 없습니다."
+            try:
+                # 스크립트 전체 경로
+                filepath = os.path.join(self.scripts_dir, filename)
+                
+                # 모듈 import
+                spec = importlib.util.spec_from_file_location(
+                    "dynamic_script", filepath)
+                module = importlib.util.module_from_spec(spec)
+                
+                try:
+                    spec.loader.exec_module(module)
+                    
+                    # run_script 함수 실행
+                    if hasattr(module, 'run_script'):
+                        result = module.run_script()
+                        
+                        # print 출력 내용 가져오기
+                        printed_output = output_buffer.getvalue()
+                        
+                        # 결과 문자열 처리
+                        if isinstance(result, str):
+                            result = result.replace('\\n', '\n')
+                            result = '\n'.join(line.strip() for line in result.split('\n'))
+                        
+                        return {
+                            'result': result if result else "스크립트가 실행되었습니다.",
+                            'printed': printed_output
+                        }
+                    else:
+                        return {
+                            'result': "run_script() 함수를 찾을 수 없습니다.",
+                            'printed': ""
+                        }
+                        
+                except Exception as e:
+                    # 에러 발생 위치 추출
+                    import traceback
+                    tb = traceback.extract_tb(sys.exc_info()[2])
+                    # 스크립트 내에서 발생한 마지막 에러 위치 찾기
+                    for frame in reversed(tb):
+                        if frame.filename == filepath:
+                            error_line = frame.lineno
+                            return {
+                                'result': f"오류 발생 (라인 {error_line}): {str(e)}",
+                                'printed': ""
+                            }
+                    # 스크립트 내 위치를 찾지 못한 경우
+                    return {
+                        'result': f"오류 발생: {str(e)}",
+                        'printed': ""
+                    }
+                    
+            finally:
+                # 원래의 stdout 복구
+                sys.stdout = original_stdout
+                output_buffer.close()
                 
         except Exception as e:
-            return f"스크립트 실행 중 오류: {str(e)}"
+            return {
+                'result': f"스크립트 실행 중 오류: {str(e)}",
+                'printed': ""
+            }
 
     def delete_script(self, filename):
         """스크립트 파일 삭제"""
