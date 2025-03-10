@@ -500,7 +500,6 @@ class QOllamaDockWidget(QDockWidget):
                     
         return all_text
 
-
     def process_all_layers(self):
         """모든 레이어 처리"""
         try:

@@ -242,7 +242,7 @@ class WorkWidget(QWidget):
         try:
             content = self.editor.toPlainText()
             self.work_handler.save_script_content(filename, content)
-            iface.messageBar().pushMessage("성공", "스크립트가 저장되었습니다.", level=Qgis.Success)
+            iface.messageBar().pushMessage("성공", "스크립트가 실행되었습니다.", level=Qgis.Success)
             
         except Exception as e:
             QMessageBox.warning(self, "오류", str(e))
