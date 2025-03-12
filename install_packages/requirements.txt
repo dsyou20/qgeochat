@@ -5,3 +5,5 @@ faiss-cpu==1.10.0
 reportlab==4.3.1
 geopandas==0.11.1
 PyPDF2
+#numpy==1.26.4
+langchain-community
