@@ -26,7 +26,8 @@ def run_script():
         """
         
         conditions = [
-            {'field': 'id', 'value': 'doncare', 'operator': 'dontcare'}  # "don't care" 조건
+            {'field': 'stage', 'value': 'gray', 'operator': 'in'},  
+            {'field': 'species', 'value': 'pine', 'operator': 'in'}, 
         ]
         
         # 선택할 피쳐 필터링
