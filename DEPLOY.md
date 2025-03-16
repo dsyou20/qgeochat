@@ -41,7 +41,7 @@ OpenAI API 키를 입력합니다.
 설치가 완료된 후, 플러그인이 정상적으로 작동하는지 확인합니다. 플러그인을 실행하여 설정된 OpenAI API 키를 통해 정상적으로 작동하는지 점검하십시오.
 
 
-맥
+[맥]
 /Applications/QGIS.app/Contents/MacOS/bin/python3.9 -m pip install -r /QGIS/QGIS3/profiles/default/python/plugins Support/QGIS/QGIS3/profiles/default/python/plugins/qgeochat/install_packages/requirements.txt
 
 --> cd /Users/dsyou20/Library/Application\ Support/QGIS/QGIS3/profiles/default/python/plugins 
