@@ -45,4 +45,6 @@ OpenAI API 키를 입력합니다.
 /Applications/QGIS.app/Contents/MacOS/bin/python3.9 -m pip install -r /QGIS/QGIS3/profiles/default/python/plugins Support/QGIS/QGIS3/profiles/default/python/plugins/qgeochat/install_packages/requirements.txt
 
 /QGIS/QGIS3/profiles/default/python/plugins Support/QGIS/QGIS3/profiles/default/python/plugins
+
+?? -> /Users/dsyou20/Library/Application Support/QGIS/QGIS3/profiles/default/python/
  
