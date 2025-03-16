@@ -21,6 +21,8 @@
  *                                                                         *
  ***************************************************************************/
 """
+
+
 import os.path
 
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
@@ -28,7 +30,7 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import QgsProject
 
-from .QGeoChat_dockwidget import QQGeoChatDockWidget
+from .QGeoChat_dockwidget import QGeoChatDockWidget
 
 class QGeoChat:
     """QGIS Plugin Implementation."""
