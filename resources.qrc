@@ -1,5 +1,5 @@
 <RCC>
-    <qresource prefix="/plugins/QOllama" >
+    <qresource prefix="/plugins/QGeoChat" >
         <file>icon.png</file>
     </qresource>
 </RCC>

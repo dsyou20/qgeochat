@@ -1,7 +1,7 @@
 # QGeoChat
 
 ## 소개
-**QOllama는** QGIS에서 AI 기술을 활용하여 공간 데이터 분석을 지원하는 플러그인입니다.
+**QGeoChat** QGIS에서 AI 기술을 활용하여 공간 데이터 분석을 지원하는 플러그인입니다.
 
 ## 지원 모델
 | 모델 | 상태 |
@@ -61,4 +61,4 @@
 이 플러그인은 Apache License v2 라이선스를 따릅니다.
 
 ---
-© 2024 QOllama. All rights reserved.
+© 2024 QGeoChat. All rights reserved.

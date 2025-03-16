@@ -48,7 +48,7 @@ class RAGHandler:
         else:
             # QSettings에서 API 키 읽기
             settings = QgsSettings()
-            self.api_key = settings.value("QOllama/api_key", "", type=str)
+            self.api_key = settings.value("QGeoChat/api_key", "", type=str)
             if self.api_key:
                 os.environ["OPENAI_API_KEY"] = self.api_key
                 logging.info("저장된 OpenAI API 키를 불러왔습니다.")

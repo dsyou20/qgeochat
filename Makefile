@@ -1,5 +1,5 @@
 #/***************************************************************************
-# QOllama
+# QGeoChat
 #
 # QGIS Ollama
 #							 -------------------
@@ -38,15 +38,15 @@ LOCALES =
 # translation
 SOURCES = \
 	__init__.py \
-	QOllama.py QOllama_dockwidget.py
+	QGeoChat.py QGeoChat_dockwidget.py
 
-PLUGINNAME = QOllama
+PLUGINNAME = QGeoChat
 
 PY_FILES = \
 	__init__.py \
-	QOllama.py QOllama_dockwidget.py
+	QGeoChat.py QGeoChat_dockwidget.py
 
-UI_FILES = QOllama_dockwidget_base.ui
+UI_FILES = QGeoChat_dockwidget_base.ui
 
 EXTRAS = metadata.txt icon.png
 
