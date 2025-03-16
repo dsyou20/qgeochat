@@ -25,12 +25,20 @@
 
 import subprocess
 import sys
+import os
 from qgis.PyQt.QtWidgets import QMessageBox, QProgressDialog
 from qgis.PyQt.QtCore import Qt
 import pkg_resources
 import importlib
 
-
+# pyproj 데이터 디렉토리 설정
+try:
+    import pyproj
+    proj_dir = os.path.join(os.path.dirname(os.path.dirname(pyproj.__file__)), 'proj')
+    if os.path.exists(proj_dir):
+        os.environ['PROJ_LIB'] = proj_dir
+except:
+    pass
 
 from .QGeoChat import QGeoChat
 

@@ -21,6 +21,56 @@ class WorkWidget(QWidget):
         layout = QVBoxLayout()
         self.setLayout(layout)
         
+        # 다크 모드 스타일 적용
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 5px 15px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+            QPushButton:disabled {
+                background-color: #4f4f4f;
+                color: #8f8f8f;
+            }
+            QComboBox {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QComboBox:drop-down {
+                border: none;
+            }
+            QComboBox:down-arrow {
+                background-color: #3f3f3f;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                selection-background-color: #3f3f3f;
+            }
+            QLineEdit {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
+                padding: 4px;
+            }
+        """)
+        
         # 상단 도구 모음
         top_toolbar = QHBoxLayout()
         
@@ -117,21 +167,30 @@ class WorkWidget(QWidget):
         # 결과 창 스타일 설정
         self.result_display.setStyleSheet("""
             QTextEdit {
-                background-color: #F8F8F8;
-                border: 1px solid #DDD;
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
                 padding: 4px;
             }
             QScrollBar:vertical {
                 border: none;
-                background: #F0F0F0;
+                background: #1f1f1f;
                 width: 12px;
                 margin: 0px;
             }
             QScrollBar:horizontal {
                 border: none;
-                background: #F0F0F0;
+                background: #1f1f1f;
                 height: 12px;
                 margin: 0px;
+            }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+                background: #3f3f3f;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+                background: #4f4f4f;
             }
         """)
         
@@ -143,21 +202,30 @@ class WorkWidget(QWidget):
         # 에디터 스타일 설정
         self.editor.setStyleSheet("""
             QTextEdit {
-                background-color: #FFFFFF;
-                border: 1px solid #DDD;
+                background-color: #2b2b2b;
+                color: #ffffff;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
                 padding: 4px;
             }
             QScrollBar:vertical {
                 border: none;
-                background: #F0F0F0;
+                background: #1f1f1f;
                 width: 12px;
                 margin: 0px;
             }
             QScrollBar:horizontal {
                 border: none;
-                background: #F0F0F0;
+                background: #1f1f1f;
                 height: 12px;
                 margin: 0px;
+            }
+            QScrollBar::handle:vertical, QScrollBar::handle:horizontal {
+                background: #3f3f3f;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {
+                background: #4f4f4f;
             }
         """)
         

@@ -92,6 +92,44 @@ class QGeoChatDockWidget(QDockWidget):
         self.main_widget = QWidget()
         self.setWidget(self.main_widget)
         
+        # 다크 모드 스타일 적용
+        self.main_widget.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QTabWidget::pane {
+                border: 1px solid #3f3f3f;
+                background-color: #2b2b2b;
+            }
+            QTabBar::tab {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                padding: 8px 12px;
+                border: 1px solid #3f3f3f;
+            }
+            QTabBar::tab:selected {
+                background-color: #3f3f3f;
+            }
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 5px 15px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #0D47A1;
+            }
+            QPushButton:disabled {
+                background-color: #4f4f4f;
+                color: #8f8f8f;
+            }
+        """)
+        
         # 메인 레이아웃 설정
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(0, 0, 0, 0)  # 여백 제거
@@ -206,9 +244,16 @@ class QGeoChatDockWidget(QDockWidget):
         )
         self.chat_display.setStyleSheet("""
             QTextBrowser {
-                background-color: white;
+                background-color: #2b2b2b;
+                color: #ffffff;
                 font-family: Arial;
                 font-size: 10pt;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
+            }
+            QTextBrowser:disabled {
+                background-color: #1f1f1f;
+                color: #8f8f8f;
             }
         """)
         layout.addWidget(self.chat_display)
@@ -221,6 +266,21 @@ class QGeoChatDockWidget(QDockWidget):
         self.input_text.setMaximumHeight(100)
         self.input_text.setAcceptRichText(False)
         self.input_text.installEventFilter(self)
+        self.input_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #2b2b2b;
+                color: #ffffff;
+                font-family: Arial;
+                font-size: 10pt;
+                border: 1px solid #3f3f3f;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QTextEdit:disabled {
+                background-color: #1f1f1f;
+                color: #8f8f8f;
+            }
+        """)
         
         input_layout.addWidget(self.input_text)
         
