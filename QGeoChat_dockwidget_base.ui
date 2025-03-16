@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>QOllamaDockWidgetBase</class>
- <widget class="QDockWidget" name="QOllamaDockWidgetBase">
+ <class>QGeoChatDockWidgetBase</class>
+ <widget class="QDockWidget" name="QGeoChatDockWidgetBase">
   <property name="geometry">
    <rect>
     <x>0</x>
