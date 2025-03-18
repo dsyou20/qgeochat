@@ -117,8 +117,12 @@ class QShareWidget(QWidget):
         
         # 초기화
         self.load_saved_credentials()
-        self.update_ui_state(False)
+        self.update_ui_state(self.handler.is_logged_in)
         self.refresh_local_scripts()
+        
+        # 자동 로그인 시도
+        if self.handler.is_logged_in:
+            self.refresh_server_scripts()
         
     def load_saved_credentials(self):
         """저장된 로그인 정보 로드"""
@@ -294,6 +298,15 @@ class SyncHandler(QObject):
         self.scripts_dir = os.path.join(plugin_dir, 'myscripts')
         if not os.path.exists(self.scripts_dir):
             os.makedirs(self.scripts_dir)
+            
+        # 저장된 로그인 정보로 자동 로그인 시도
+        email, password = self.load_credentials()
+        if email and password:
+            success, message = self.login(email, password)
+            if success:
+                self.login_status_changed.emit(True, "자동 로그인 성공")
+            else:
+                self.login_status_changed.emit(False, f"자동 로그인 실패: {message}")
             
     def _get_headers(self):
         """인증 헤더 반환"""
