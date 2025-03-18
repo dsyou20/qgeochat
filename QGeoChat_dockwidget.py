@@ -39,12 +39,13 @@ from qgis.PyQt.QtCore import pyqtSignal, QSettings, Qt, QUrl, QEvent
 from qgis.core import QgsProject, Qgis, QgsVectorLayer, QgsWkbTypes, QgsRasterLayer, QgsSettings, QgsMapLayer
 from openai import OpenAI
 from .rag_handler import RAGHandler
+from .sync_handler import SyncHandler, QShareWidget
 from qgis.PyQt.QtGui import QDesktopServices, QTextCharFormat, QColor, QTextCursor, QIcon
 from qgis.PyQt.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
                                 QPushButton, QLineEdit, QTextEdit, QLabel,
                                 QTabWidget, QListWidget, QComboBox, QCheckBox,
                                 QProgressBar, QMessageBox, QGroupBox, QSizePolicy,
-                                QToolButton, QStyle, QTextBrowser)
+                                QToolButton, QStyle, QTextBrowser, QGridLayout)
 from .work_widget import WorkWidget  # 임시로 제거
 from .knowhow_widget import KnowHowWidget
 
@@ -186,12 +187,13 @@ class QGeoChatDockWidget(QDockWidget):
         self.my_job_tab = WorkWidget()
         self.tab_widget.addTab(self.my_job_tab, "내 작업")
         
-        
         # 내 노하우 탭
         self.my_knowhow_tab = KnowHowWidget()
         self.tab_widget.addTab(self.my_knowhow_tab, "내 노하우")
         
-
+        # QShare 탭
+        self.qshare_widget = QShareWidget(self)
+        self.tab_widget.addTab(self.qshare_widget, "QShare")
         
         # 설정 탭
         self.settings_tab = QWidget()
@@ -1015,3 +1017,212 @@ class QGeoChatDockWidget(QDockWidget):
                 
         except Exception as e:
             self.info_display.setPlainText(f"README.md 파일 로드 중 오류 발생: {str(e)}")
+
+    def setup_qshare_ui(self):
+        """QShare 탭 UI 설정"""
+        layout = QVBoxLayout()
+        self.qshare_tab.setLayout(layout)
+        
+        # 로그인 그룹
+        login_group = QGroupBox("로그인")
+        login_layout = QGridLayout()
+        login_group.setLayout(login_layout)
+        
+        # 아이디/비밀번호 입력
+        self.username_input = QLineEdit()
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        
+        # 로그인 정보 저장 체크박스
+        self.save_login_checkbox = QCheckBox("로그인 정보 저장")
+        
+        # 로그인 버튼
+        self.login_button = QPushButton("로그인")
+        self.login_button.clicked.connect(self.handle_login)
+        
+        # 로그인 상태 라벨
+        self.login_status_label = QLabel()
+        
+        # 위젯 배치
+        login_layout.addWidget(QLabel("아이디:"), 0, 0)
+        login_layout.addWidget(self.username_input, 0, 1)
+        login_layout.addWidget(QLabel("비밀번호:"), 1, 0)
+        login_layout.addWidget(self.password_input, 1, 1)
+        login_layout.addWidget(self.save_login_checkbox, 2, 0, 1, 2)
+        login_layout.addWidget(self.login_button, 3, 0, 1, 2)
+        login_layout.addWidget(self.login_status_label, 4, 0, 1, 2)
+        
+        # 서버측 스크립트 그룹
+        server_group = QGroupBox("서버 스크립트")
+        server_layout = QVBoxLayout()
+        server_group.setLayout(server_layout)
+        
+        # 서버 스크립트 목록
+        self.server_script_list = QListWidget()
+        
+        # 서버 버튼 영역
+        server_button_layout = QHBoxLayout()
+        self.download_button = QPushButton("다운로드")
+        self.server_refresh_button = QPushButton("새로고침")
+        
+        self.download_button.clicked.connect(self.handle_download)
+        self.server_refresh_button.clicked.connect(self.refresh_server_scripts)
+        
+        server_button_layout.addWidget(self.download_button)
+        server_button_layout.addWidget(self.server_refresh_button)
+        
+        server_layout.addWidget(self.server_script_list)
+        server_layout.addLayout(server_button_layout)
+        
+        # 로컬측 스크립트 그룹
+        local_group = QGroupBox("로컬 스크립트")
+        local_layout = QVBoxLayout()
+        local_group.setLayout(local_layout)
+        
+        # 로컬 스크립트 목록
+        self.local_script_list = QListWidget()
+        
+        # 로컬 버튼 영역
+        local_button_layout = QHBoxLayout()
+        self.upload_button = QPushButton("업로드")
+        self.local_refresh_button = QPushButton("새로고침")
+        
+        self.upload_button.clicked.connect(self.handle_upload)
+        self.local_refresh_button.clicked.connect(self.refresh_local_scripts)
+        
+        local_button_layout.addWidget(self.upload_button)
+        local_button_layout.addWidget(self.local_refresh_button)
+        
+        local_layout.addWidget(self.local_script_list)
+        local_layout.addLayout(local_button_layout)
+        
+        # 메인 레이아웃에 추가
+        layout.addWidget(login_group)
+        layout.addWidget(server_group)
+        layout.addWidget(local_group)
+        
+        # SyncHandler 초기화
+        self.sync_handler = SyncHandler()
+        self.sync_handler.login_status_changed.connect(self.update_login_status)
+        
+        # 저장된 로그인 정보 로드
+        self.load_saved_credentials()
+        
+        # 초기 UI 상태 설정
+        self.update_ui_state(False)
+
+    def load_saved_credentials(self):
+        """저장된 로그인 정보 로드"""
+        username, password = self.sync_handler.load_credentials()
+        if username and password:
+            self.username_input.setText(username)
+            self.password_input.setText(password)
+            self.save_login_checkbox.setChecked(True)
+
+    def handle_login(self):
+        """로그인 처리"""
+        username = self.username_input.text()
+        password = self.password_input.text()
+        
+        if not username or not password:
+            QMessageBox.warning(self, "경고", "아이디와 비밀번호를 입력해주세요.")
+            return
+        
+        # 로그인 시도
+        success, message = self.sync_handler.login(username, password)
+        
+        if success:
+            # 로그인 정보 저장
+            if self.save_login_checkbox.isChecked():
+                self.sync_handler.save_credentials(username, password)
+            
+            # UI 상태 업데이트
+            self.update_ui_state(True)
+            self.refresh_server_scripts()
+        
+        QMessageBox.information(self, "로그인", message)
+
+    def update_login_status(self, success, message):
+        """로그인 상태 업데이트"""
+        if success:
+            self.login_status_label.setText("로그인 됨")
+            self.login_status_label.setStyleSheet("color: green")
+        else:
+            self.login_status_label.setText("로그인 필요")
+            self.login_status_label.setStyleSheet("color: red")
+
+    def update_ui_state(self, is_logged_in):
+        """UI 상태 업데이트"""
+        self.upload_button.setEnabled(is_logged_in)
+        self.download_button.setEnabled(is_logged_in)
+        self.server_refresh_button.setEnabled(is_logged_in)
+        self.local_refresh_button.setEnabled(is_logged_in)
+        self.server_script_list.setEnabled(is_logged_in)
+        self.local_script_list.setEnabled(is_logged_in)
+        
+        if not is_logged_in:
+            self.server_script_list.clear()
+            self.local_script_list.clear()
+
+    def refresh_server_scripts(self):
+        """서버 스크립트 목록 새로고침"""
+        success, message, scripts = self.sync_handler.list_available_scripts()
+        
+        if success:
+            self.server_script_list.clear()
+            self.server_script_list.addItems(scripts)
+        else:
+            QMessageBox.warning(self, "오류", message)
+
+    def refresh_local_scripts(self):
+        """로컬 스크립트 목록 새로고침"""
+        try:
+            # myscripts 폴더 경로
+            script_dir = os.path.join(os.path.dirname(__file__), 'myscripts')
+            
+            if not os.path.exists(script_dir):
+                os.makedirs(script_dir)
+            
+            # .py 파일만 필터링
+            scripts = [f for f in os.listdir(script_dir) if f.endswith('.py')]
+            
+            self.local_script_list.clear()
+            self.local_script_list.addItems(scripts)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"로컬 스크립트 목록 조회 실패: {str(e)}")
+
+    def handle_upload(self):
+        """선택된 로컬 스크립트 업로드"""
+        selected_items = self.local_script_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "경고", "업로드할 스크립트를 선택해주세요.")
+            return
+        
+        script_name = selected_items[0].text()
+        script_path = os.path.join(os.path.dirname(__file__), 'myscripts', script_name)
+        
+        if os.path.exists(script_path):
+            success, message = self.sync_handler.upload_script(script_path)
+            QMessageBox.information(self, "업로드", message)
+            
+            if success:
+                self.refresh_server_scripts()
+        else:
+            QMessageBox.warning(self, "오류", "스크립트 파일을 찾을 수 없습니다.")
+
+    def handle_download(self):
+        """선택된 서버 스크립트 다운로드"""
+        selected_items = self.server_script_list.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "경고", "다운로드할 스크립트를 선택해주세요.")
+            return
+        
+        script_name = selected_items[0].text()
+        save_path = os.path.join(os.path.dirname(__file__), 'myscripts', script_name)
+        
+        success, message = self.sync_handler.download_script(script_name, save_path)
+        QMessageBox.information(self, "다운로드", message)
+        
+        if success:
+            self.refresh_local_scripts()

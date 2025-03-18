@@ -30,6 +30,39 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.core import QgsProject
 
+
+from .install_packages.check_dependencies import check
+
+API_EXIST = False
+try:
+    
+    check(['openai', 'langchain', 'langchain_openai', 'faiss', 
+           'reportlab', 'geopandas', 'PyPDF2', 'langchain_community'])
+
+finally:
+    import openai
+
+    try:
+        import speech_recognition as sr
+    except:
+        pass
+    try:
+        import pyttsx3
+    except:
+        pass
+    try:
+        from pdfgpt import *
+    except:
+        pass
+    API_EXIST = True
+
+try:
+    import threading
+except:
+    pass
+
+
+
 from .QGeoChat_dockwidget import QGeoChatDockWidget
 
 class QGeoChat:
